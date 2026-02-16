@@ -66,7 +66,7 @@ From repo root:
 
 ### iOS demo video: `images/ios_demo.MP4`
 
-<video src="images/ios_demo.MP4" controls width="320"></video>
+https://github.com/user-attachments/assets/c6449505-891c-4439-9173-a7769b0d2386
 
 ### iOS Screenshots
 <p>
@@ -74,8 +74,6 @@ From repo root:
   <img src="images/ios2.PNG" alt="iOS 2" width="220" />
   <img src="images/ios3.PNG" alt="iOS 3" width="220" />
   <img src="images/ios4.PNG" alt="iOS 4" width="220" />
-</p>
-<p>
   <img src="images/ios5.PNG" alt="iOS 5" width="220" />
   <img src="images/ios6.PNG" alt="iOS 6" width="220" />
   <img src="images/ios7.PNG" alt="iOS 7" width="220" />
@@ -85,8 +83,7 @@ From repo root:
 
 ### Android demo video: `images/android_demo.mp4`
 
-<video src="images/android_demo.mp4" controls width="320"></video>
-
+https://github.com/user-attachments/assets/970ce2bb-2ae2-4245-9017-cf32fcd014ec
 
 
 ### Android Screenshots
@@ -95,8 +92,6 @@ From repo root:
   <img src="images/android0.jpg" alt="Android 4" width="220" />
   <img src="images/android2.jpg" alt="Android 2" width="220" />
   <img src="images/android3.jpg" alt="Android 3" width="220" />
-</p>
-<p>
   <img src="images/android4.jpg" alt="Android 4" width="220" />
   <img src="images/android5.jpg" alt="Android 5" width="220" />
   <img src="images/android6.jpg" alt="Android 6" width="220" />
