@@ -1,2 +1,0 @@
-/Users/libowen/learning/android/app/.cxx/Debug/w63m255l/arm64-v8a/CMakeFiles/edit_cache.dir
-/Users/libowen/learning/android/app/.cxx/Debug/w63m255l/arm64-v8a/CMakeFiles/rebuild_cache.dir
