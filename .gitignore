@@ -5,6 +5,9 @@ frontend/.env
 
 # Node modules / Flutter build
 backend/node_modules
+frontend/node_modules
+frontend/.expo
+frontend/.expo-shared
 frontend/.dart_tool
 frontend/build
 frontend/ios/Pods

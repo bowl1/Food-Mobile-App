@@ -1,70 +1,105 @@
-# 🍽️ Fridge to Food - Ingredient → Recipe Assistant
-Flutter app + Node.js API that turns whatever’s in your fridge into cookable recipes, with auth, favorites, and profile management.
+# Fridge to Food
+Created to reduce food waste by turning everyday fridge ingredients into practical meal ideas.
+Mobile recipe app based on fridge ingredients, built with React Native (Expo + TypeScript) and Express + Firestore.
 
-## ✨ Features
-- Ingredient-first search with dietary filters (vegetarian, keto, gluten-free, etc.).
-- Recipe details with images, ingredients, and steps; cached thumbnails for smooth scrolling.
-- Favorites backed by MongoDB and tied to Firebase-authenticated users.
-- Firebase Auth login/register; tokens forwarded to backend for protected routes.
-- Profile center with avatar upload (base64 → backend) and display name.
-- Cross-platform Flutter UI (mobile/web/desktop) with bottom navigation to Favorites/Profile.
+## Features
+- Firebase Auth login/register
+- Recipe search via backend proxy to RapidAPI
+- Dietary tag filter (including strict vegetarian post-filter on backend)
+- Favorites with offline-first local cache (SQLite) and background sync
+- Profile page with avatar upload (camera or photo library)
+- Recipe detail long-image sharing
+- Local notification on favorite save
 
-## ⚙️ Tech Stack
-| Category    | Technology |
-| ----------- | ---------- |
-| Frontend    | Flutter (Dart), cached_network_image |
-| Auth        | Firebase Authentication (client) + Firebase Admin (server) |
-| Backend     | Node.js, Express.js, CORS/body-parser middleware |
-| Database    | MongoDB (favorites, avatars) |
-| External API| RapidAPI Low Carb Recipes |
-| Tooling     | `start.sh` one-command launcher |
+## Tech Stack
+- Frontend: Expo, React Native, TypeScript
+- Navigation: React Navigation (stack + bottom tabs)
+- State: Zustand
+- Server data: TanStack Query
+- Local persistence: expo-sqlite + persisted TanStack cache
+- Notifications: expo-notifications
+- Secure token storage: expo-secure-store
+- Backend: Node.js + Express
+- Database/Auth backend: Firebase Admin + Firestore
 
-## 🧭 Project Structure
+## Project Structure
+- `frontend/`: React Native app
+- `backend/`: Express API
+- `start.sh`: local startup helper script
+
+## Prerequisites
+- Node.js `>=18 <25` (recommended: Node 22 LTS)
+- npm
+- Firebase project and service account
+- RapidAPI key for `low-carb-recipes.p.rapidapi.com`
+
+## Run
+From repo root:
+
+```bash
+./start.sh
 ```
-.
-├── frontend/                    # Flutter app
-│   ├── lib/                     # Pages: login, auth check, search, detail, favorites, profile, filters
-│   ├── images/                  # Screenshots & GIFs for README
-│   └── macos/Podfile            # macOS platform config
-├── backend/                     # Express API
-│   ├── routes/                  # auth, favorites, avatar
-│   ├── db.js                    # Mongo connection
-│   └── firebaseAdmin.js         # Firebase Admin setup
-├── start.sh                     # One-command launcher (backend + frontend)
-└── firebase.json                # Emulator config (auth)
-```
 
-## 🏗️ Architecture Overview
-- **Frontend (Flutter)**  
-  Ingredient search → dietary filter → detail view → favorite toggle (token-auth) → profile with avatar upload.
-- **Backend (Express + MongoDB)**  
-  Firebase token verification → favorites CRUD → avatar upload/storage → proxy calls to external recipe API.
-- **External data**  
-  RapidAPI Low Carb Recipes for search results and details.
+`start.sh` currently does:
+1. Install backend dependencies, start backend on port `5001`
+2. Install frontend dependencies, start Expo
 
-## 🚀 Screenshots
 
-![flow.gif](frontend/images/flow.gif)
+## API Summary
+### Auth
+- `POST /api/auth/register` (auth required)
+- `GET /api/auth/user/:uid` (auth required, own uid only)
 
-### Android
-<div style="display: flex; flex-wrap: wrap; gap: 10px;">
-  <img src="frontend/images/And1.png" alt="Description" width="200">
-  <img src="frontend/images/And2.png" alt="Description" width="200">
-  <img src="frontend/images/And3.png" alt="Description" width="200">
-  <img src="frontend/images/And4.png" alt="Description" width="200">
-  <img src="frontend/images/And5.png" alt="Description" width="200">
-  <img src="frontend/images/And6.png" alt="Description" width="200">
-  <img src="frontend/images/And7.png" alt="Description" width="200">
-</div>
+### Favorites
+- `GET /api/favorites` (auth required)
+- `POST /api/favorites` (auth required)
+- `DELETE /api/favorites/:id` (auth required)
 
-### iOS
-<div style="display: flex; flex-wrap: wrap; gap: 10px;">
-  <img src="frontend/images/ios0.png" alt="Description" width="200">
-  <img src="frontend/images/ios1.png" alt="Description" width="200">
-  <img src="frontend/images/ios2.png" alt="Description" width="200">
-  <img src="frontend/images/ios3.png" alt="Description" width="200">
-  <img src="frontend/images/ios4.png" alt="Description" width="200">
-  <img src="frontend/images/ios5.png" alt="Description" width="200">
-  <img src="frontend/images/ios6.png" alt="Description" width="200">
-  <img src="frontend/images/ios7.png" alt="Description" width="200">
-</div>
+### Avatar
+- `POST /api/avatar/upload` (auth required, own uid only)
+- `GET /api/avatar/:uid` (auth required, own uid only)
+
+### Recipes
+- `GET /api/recipes/search?keyword=chicken&tag=vegetarian&excludeIngredients=beef;fish`
+
+## Demo (recorded on real devices (iOS + Android))
+
+### iOS demo video: `images/ios_demo.MP4`
+
+<video src="images/ios_demo.MP4" controls width="320"></video>
+
+### iOS Screenshots
+<p>
+  <img src="images/ios1.PNG" alt="iOS 1" width="220" />
+  <img src="images/ios2.PNG" alt="iOS 2" width="220" />
+  <img src="images/ios3.PNG" alt="iOS 3" width="220" />
+  <img src="images/ios4.PNG" alt="iOS 4" width="220" />
+</p>
+<p>
+  <img src="images/ios5.PNG" alt="iOS 5" width="220" />
+  <img src="images/ios6.PNG" alt="iOS 6" width="220" />
+  <img src="images/ios7.PNG" alt="iOS 7" width="220" />
+  <img src="images/ios8.PNG" alt="iOS 8" width="220" />
+</p>
+
+
+### Android demo video: `images/android_demo.mp4`
+
+<video src="images/android_demo.mp4" controls width="320"></video>
+
+
+
+### Android Screenshots
+<p>
+  <img src="images/android1.jpg" alt="Android 1" width="220" />
+  <img src="images/android0.jpg" alt="Android 4" width="220" />
+  <img src="images/android2.jpg" alt="Android 2" width="220" />
+  <img src="images/android3.jpg" alt="Android 3" width="220" />
+</p>
+<p>
+  <img src="images/android4.jpg" alt="Android 4" width="220" />
+  <img src="images/android5.jpg" alt="Android 5" width="220" />
+  <img src="images/android6.jpg" alt="Android 6" width="220" />
+  <img src="images/android7.jpg" alt="Android 7" width="220" />
+</p>
+
