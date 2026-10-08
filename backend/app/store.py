@@ -1,0 +1,76 @@
+"""The user's bearer token reaches PostgREST; RLS remains active on every query."""
+import json
+import sqlite3
+from uuid import uuid4
+from datetime import datetime, timezone
+import httpx
+from fastapi import HTTPException
+from .auth import Identity
+from .config import settings
+from .schemas import Preferences
+
+
+class Store:
+    def __init__(self, identity: Identity):
+        self.identity = identity
+
+    async def request(self, table, method='GET', data=None, item_id=None):
+        cfg = settings()
+        if cfg.demo_mode and self.identity.token == 'local-demo':
+            return self._local(table, method, data, item_id)
+        params = {'user_id': f'eq.{self.identity.user_id}', 'select': '*'}
+        if item_id:
+            params['id'] = f'eq.{item_id}'
+        if table in ('recipes', 'recipe_sessions') and method == 'GET':
+            params.update(order='created_at.desc', limit='100')
+        payload = data
+        if method in ('POST', 'PATCH'):
+            payload = {**(data or {}), 'user_id': self.identity.user_id}
+        async with httpx.AsyncClient(timeout=20) as client:
+            try:
+                response = await client.request(method, f'{cfg.supabase_url}/rest/v1/{table}',
+                    params=params, json=payload, headers={
+                        'apikey': cfg.supabase_anon_key,
+                        'Authorization': f'Bearer {self.identity.token}',
+                        'Prefer': 'return=representation'})
+                response.raise_for_status()
+            except httpx.HTTPError:
+                raise HTTPException(503, 'Database unavailable. Please try again.')
+        return response.json() if response.content else []
+
+    def _local(self, table, method, data, item_id):
+        with sqlite3.connect(settings().demo_db_path) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, owner TEXT, kind TEXT, payload TEXT)')
+            rows = [json.loads(row[0]) for row in db.execute(
+                'SELECT payload FROM records WHERE owner=? AND kind=? ORDER BY rowid DESC',
+                (self.identity.user_id, table))]
+            if method == 'GET':
+                return [r for r in rows if not item_id or r['id'] == item_id]
+            if method == 'POST':
+                row = {**data, 'id': str(uuid4()), 'user_id': self.identity.user_id,
+                       'created_at': datetime.now(timezone.utc).isoformat()}
+                db.execute('INSERT INTO records VALUES (?,?,?,?)',
+                           (row['id'], self.identity.user_id, table, json.dumps(row)))
+                return [row]
+            matches = [r for r in rows if r['id'] == item_id]
+            for row in matches:
+                if method == 'DELETE':
+                    db.execute('DELETE FROM records WHERE id=? AND owner=?', (row['id'], self.identity.user_id))
+                else:
+                    row.update(data)
+                    db.execute('UPDATE records SET payload=? WHERE id=? AND owner=?',
+                               (json.dumps(row), row['id'], self.identity.user_id))
+            return matches
+
+    async def inventory(self):
+        return [r for r in await self.request('inventory_items') if not r.get('consumed', False)]
+
+    async def preferences(self):
+        rows = await self.request('user_preferences')
+        return {k: rows[0][k] for k in Preferences.model_fields} if rows else Preferences().model_dump()
+
+    async def set_preferences(self, data):
+        rows = await self.request('user_preferences')
+        result = await self.request('user_preferences', 'PATCH' if rows else 'POST', data,
+                                    rows[0]['id'] if rows else None)
+        return result[0]

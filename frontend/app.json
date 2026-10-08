@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Fridge to Food",
-    "slug": "fridge-to-food",
+    "name": "FridgeChef",
+    "slug": "fridgechef",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#EAF7EE"
+      "backgroundColor": "#F8F7F2"
     },
     "ios": {
       "supportsTablet": true,
@@ -27,8 +27,14 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-notifications",
-      "expo-asset"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow FridgeChef to recognize ingredients in your photos.",
+          "cameraPermission": "Allow FridgeChef to photograph your ingredients.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: fridgechef-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: DEMO_MODE
+        value: "false"
+      - key: OPENAI_MODEL
+        value: gpt-6-luna
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: http://localhost:8081,http://localhost:19006

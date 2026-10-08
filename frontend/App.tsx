@@ -1,17 +1,10 @@
-import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { FridgeChef } from './src/fridgechef/FridgeChef';
 
-import { AppProviders } from './src/providers/AppProviders';
-import { RootNavigator } from './src/navigation/RootNavigator';
-
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15000 } } });
 export default function App() {
-  return (
-    <SafeAreaProvider>
-      <AppProviders>
-        <StatusBar style="dark" />
-        <RootNavigator />
-      </AppProviders>
-    </SafeAreaProvider>
-  );
+  return <SafeAreaProvider><QueryClientProvider client={queryClient}><StatusBar style="dark" /><FridgeChef /></QueryClientProvider></SafeAreaProvider>;
 }

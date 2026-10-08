@@ -1,0 +1,7 @@
+[
+  {"name":"vegan_no_invented_tofu","inventory":[{"food_name":"egg","quantity":2,"unit":"piece"},{"food_name":"spinach","quantity":1,"unit":"bag"},{"food_name":"cheese","quantity":100,"unit":"g"}],"preferences":{"vegan":true},"expect_no_recipes":true},
+  {"name":"gluten_free_rice","inventory":[{"food_name":"rice","quantity":100,"unit":"g"},{"food_name":"mushroom","quantity":200,"unit":"g"},{"food_name":"spinach","quantity":1,"unit":"bag"}],"preferences":{"gluten_free":true},"expect_no_recipes":false},
+  {"name":"vegetarian_fifteen_minutes","inventory":[{"food_name":"egg","quantity":2,"unit":"piece"},{"food_name":"cheese","quantity":50,"unit":"g"},{"food_name":"tomato","quantity":1,"unit":"piece"}],"preferences":{"vegetarian":true,"max_cooking_time":15},"expect_no_recipes":false},
+  {"name":"empty_inventory","inventory":[],"preferences":{},"expect_no_recipes":true},
+  {"name":"keto_only_rice_potato","inventory":[{"food_name":"rice","quantity":100,"unit":"g"},{"food_name":"potato","quantity":2,"unit":"piece"}],"preferences":{"keto":true},"expect_no_recipes":true}
+]

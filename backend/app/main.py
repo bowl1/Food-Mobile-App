@@ -1,0 +1,135 @@
+import anyio
+import base64
+import logging
+import time
+from uuid import uuid4, UUID
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from .auth import authenticated, Identity
+from .config import settings
+from .store import Store
+from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
+from .mcp_client import tools_for
+from .graph import build_graph
+from . import llm
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger('fridgechef')
+app = FastAPI(title='FridgeChef API', version='1.0.0')
+app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins.split(','),
+                   allow_methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
+
+
+@app.middleware('http')
+async def observe(request: Request, call_next):
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    start = time.monotonic()
+    response = await call_next(request)
+    response.headers['X-Request-ID'] = request_id
+    log.info('request_id=%s method=%s path=%s status=%s latency_ms=%.0f', request_id,
+             request.method, request.url.path, response.status_code, (time.monotonic() - start) * 1000)
+    return response
+
+
+@app.exception_handler(Exception)
+async def unexpected(request, exc):
+    log.error('request_id=%s error_type=%s', getattr(request.state, 'request_id', ''), type(exc).__name__)
+    return JSONResponse(status_code=503, content={'detail': 'Service unavailable. Please try again.',
+        'request_id': getattr(request.state, 'request_id', '')})
+
+
+@app.get('/health')
+async def health():
+    return {'status': 'ok', 'mode': 'demo' if settings().demo_mode else 'live'}
+
+
+@app.get('/inventory')
+async def inventory(user: Identity = Depends(authenticated)):
+    return await Store(user).inventory()
+
+
+@app.post('/inventory', status_code=201)
+async def add_inventory(item: InventoryInput, user: Identity = Depends(authenticated)):
+    return (await Store(user).request('inventory_items', 'POST', item.model_dump()))[0]
+
+
+@app.patch('/inventory/{item_id}')
+async def edit_inventory(item_id: UUID, item: InventoryPatch, user: Identity = Depends(authenticated)):
+    data = item.model_dump(exclude_unset=True)
+    if any(value is None for value in data.values()):
+        raise HTTPException(422, 'Inventory fields cannot be null.')
+    rows = await Store(user).request('inventory_items', 'PATCH', data, str(item_id))
+    if not rows:
+        raise HTTPException(404, 'Item not found.')
+    return rows[0]
+
+
+@app.delete('/inventory/{item_id}', status_code=204)
+async def delete_inventory(item_id: UUID, user: Identity = Depends(authenticated)):
+    if not await Store(user).request('inventory_items', 'DELETE', item_id=str(item_id)):
+        raise HTTPException(404, 'Item not found.')
+
+
+@app.get('/preferences')
+async def preferences(user: Identity = Depends(authenticated)):
+    return await Store(user).preferences()
+
+
+@app.put('/preferences')
+async def save_preferences(prefs: Preferences, user: Identity = Depends(authenticated)):
+    return await Store(user).set_preferences(prefs.model_dump())
+
+
+@app.post('/vision/recognize')
+async def recognize(image: ImageInput, user: Identity = Depends(authenticated)):
+    try:
+        content = base64.b64decode(image.image_base64, validate=True)
+    except ValueError:
+        raise HTTPException(422, 'Invalid image encoding.')
+    valid = ((image.mime_type == 'image/jpeg' and content.startswith(b'\xff\xd8\xff')) or
+             (image.mime_type == 'image/png' and content.startswith(b'\x89PNG\r\n\x1a\n')) or
+             (image.mime_type == 'image/webp' and content.startswith(b'RIFF') and content[8:12] == b'WEBP'))
+    if not valid or len(content) > 10_000_000:
+        raise HTTPException(422, 'Upload a JPEG, PNG or WebP image under 10 MB.')
+    if settings().demo_mode:
+        return {'foods': [dict(food_name=n, quantity=q, unit=u, source='image_recognition', confidence=c)
+                for n, q, u, c in [('egg', 6, 'piece', .97), ('spinach', 1, 'bag', .89), ('mushroom', 200, 'g', .92)]],
+                'demo': True}
+    if not settings().openai_api_key:
+        raise HTTPException(503, 'AI service is not configured.')
+    return (await llm.recognize(image)).model_dump()
+
+
+@app.post('/recipes/generate')
+async def generate(request: Request, user: Identity = Depends(authenticated)):
+    if not settings().demo_mode and not settings().openai_api_key:
+        raise HTTPException(503, 'AI service is not configured.')
+    run_id = str(uuid4())
+    log.info('request_id=%s user_id=%s agent_run_id=%s model=%s', request.state.request_id,
+             user.user_id, run_id, 'demo-fixtures' if settings().demo_mode else settings().openai_model)
+    try:
+        with anyio.fail_after(240):
+            async with tools_for(user) as call:
+                state = await build_graph(call).ainvoke({})
+                db = Store(user)
+                session = (await db.request('recipe_sessions', 'POST', {
+                    'agent_run_id': run_id, 'attempts': state['attempts'],
+                    'status': 'complete' if state['final_recipes'] else 'no_match'}))[0]
+                recipes = []
+                for row in state['final_recipes']:
+                    saved = await call('save_recipe', {'recipe': row['recipe'].model_dump(),
+                        'evaluation': row['evaluation'].model_dump(), 'session_id': session['id']})
+                    recipes.append(saved[0])
+    except TimeoutError:
+        raise HTTPException(504, 'Recipe generation timed out. Please try again.')
+    return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
+            'demo': settings().demo_mode,
+            'message': '' if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
+
+
+@app.get('/recipes/history')
+async def history(user: Identity = Depends(authenticated)):
+    async with tools_for(user) as call:
+        return await call('get_recipe_history')

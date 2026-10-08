@@ -1,0 +1,151 @@
+import asyncio
+from pathlib import Path
+import pytest
+from fastapi.testclient import TestClient
+from backend.app.config import settings
+from backend.app.auth import Identity, authenticate_token
+from backend.app.schemas import Recipe, Preferences, Ingredient, Evaluation
+from backend.app.guardrails import validate_recipe, dietary_errors
+from backend.app.graph import build_graph
+from backend.app.store import Store
+
+
+def sample_recipe(**changes):
+    data = dict(recipe_name='Spinach eggs', ingredients=[{'name': 'egg', 'quantity': 2, 'unit': 'piece'},
+        {'name': 'spinach', 'quantity': 1, 'unit': 'bag'}], pantry_staples=['salt'], cooking_time_minutes=15,
+        dietary_tags=['vegetarian'], steps=['Beat egg and chop spinach.', 'Cook egg with spinach in a pan.'],
+        reason='Uses your ingredients.')
+    return Recipe(**(data | changes))
+
+
+INVENTORY = [dict(food_name='egg', quantity=2, unit='piece'), dict(food_name='spinach', quantity=1, unit='bag')]
+
+
+@pytest.fixture(autouse=True)
+def local_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv('DEMO_MODE', 'true')
+    monkeypatch.setenv('DEMO_DB_PATH', str(tmp_path / 'demo.sqlite3'))
+    settings.cache_clear()
+    yield
+    settings.cache_clear()
+
+
+def test_inventory_and_dietary_guards():
+    assert not validate_recipe(sample_recipe(), INVENTORY, Preferences(vegetarian=True))
+    assert validate_recipe(sample_recipe(), INVENTORY, Preferences(vegan=True))
+    assert validate_recipe(sample_recipe(cooking_time_minutes=25), INVENTORY, Preferences(max_cooking_time=15))
+    recipe = sample_recipe(ingredients=[Ingredient(name='tofu', quantity=1, unit='piece')])
+    assert validate_recipe(recipe, INVENTORY, Preferences())
+    assert validate_recipe(sample_recipe(pantry_staples=['butter']), INVENTORY, Preferences())
+    assert validate_recipe(sample_recipe(steps=['Prepare egg and spinach.', 'Add chicken and fry.']), INVENTORY, Preferences())
+    assert dietary_errors(['mystery sauce'], Preferences(vegan=True))
+    assert dietary_errors(['rice'], Preferences(keto=True))
+    assert dietary_errors(['cheese'], Preferences(dairy_free=True))
+
+
+def test_quantities_and_units():
+    recipe = sample_recipe(ingredients=[Ingredient(name='egg', quantity=3, unit='piece')])
+    assert validate_recipe(recipe, INVENTORY, Preferences())
+    recipe = sample_recipe(ingredients=[Ingredient(name='egg', quantity=1, unit='g')])
+    assert validate_recipe(recipe, INVENTORY, Preferences())
+    recipe = sample_recipe(ingredients=[Ingredient(name='egg', quantity=2, unit='piece')] * 2)
+    assert validate_recipe(recipe, INVENTORY, Preferences())
+
+
+@pytest.mark.asyncio
+async def test_retry_bound_and_no_hallucination():
+    calls = []
+    async def tools(name):
+        calls.append(name)
+        return INVENTORY if name == 'get_inventory' else Preferences(vegan=True).model_dump()
+    result = await build_graph(tools).ainvoke({})
+    assert result['attempts'] == 3
+    assert result['final_recipes'] == []
+    assert calls == ['get_inventory', 'get_user_preferences']
+
+
+@pytest.mark.asyncio
+async def test_tool_failure_stops_generation():
+    async def broken(name):
+        raise RuntimeError('MCP unavailable')
+    with pytest.raises(RuntimeError):
+        await build_graph(broken).ainvoke({})
+
+
+@pytest.mark.asyncio
+async def test_auth_requires_configuration_or_verified_token():
+    from fastapi import HTTPException
+    assert (await authenticate_token('local-demo')).user_id.endswith('0001')
+    with pytest.raises(HTTPException):
+        await authenticate_token('invented-user-id')
+
+
+def test_api_and_mcp_end_to_end():
+    from backend.app.main import app
+    with TestClient(app) as client:
+        assert client.get('/inventory').status_code == 401
+        headers = {'Authorization': 'Bearer local-demo'}
+        assert client.get('/inventory', headers=headers).json() == []
+        for item in INVENTORY:
+            assert client.post('/inventory', headers=headers, json=item).status_code == 201
+        assert client.post('/inventory', headers=headers, json={'user_id': 'other', **INVENTORY[0]}).status_code == 422
+        prefs = Preferences(vegetarian=True).model_dump()
+        assert client.put('/preferences', headers=headers, json=prefs).status_code == 200
+        response = client.post('/recipes/generate', headers=headers)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert len(result['recipes']) == 3
+        assert result['attempts'] == 1
+        assert len(client.get('/recipes/history', headers=headers).json()) == 3
+        item = client.get('/inventory', headers=headers).json()[0]
+        assert client.patch(f"/inventory/{item['id']}", headers=headers, json={'consumed': True}).status_code == 200
+        assert len(client.get('/inventory', headers=headers).json()) == 1
+        assert client.patch(f"/inventory/{item['id']}", headers=headers, json={'food_name': None}).status_code == 422
+        assert client.delete('/inventory/00000000-0000-0000-0000-000000000099', headers=headers).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_store_scopes_all_requests(monkeypatch):
+    import httpx
+    settings().demo_mode = False
+    settings().supabase_url = 'https://example.supabase.co'
+    settings().supabase_anon_key = 'public-key'
+    requests = []
+    async def fake_request(self, method, url, **kwargs):
+        requests.append((method, kwargs))
+        return httpx.Response(200, json=[], request=httpx.Request(method, url))
+    monkeypatch.setattr(httpx.AsyncClient, 'request', fake_request)
+    db = Store(Identity('trusted-user', 'verified-jwt'))
+    await db.request('inventory_items')
+    await db.request('inventory_items', 'POST', {'user_id': 'attacker', 'food_name': 'egg'})
+    await db.request('inventory_items', 'PATCH', {'user_id': 'attacker'}, 'item-id')
+    for method, kwargs in requests:
+        assert kwargs['params']['user_id'] == 'eq.trusted-user'
+        assert kwargs['headers']['Authorization'] == 'Bearer verified-jwt'
+        if method != 'GET':
+            assert kwargs['json']['user_id'] == 'trusted-user'
+
+
+@pytest.mark.asyncio
+async def test_evaluator_rejection_triggers_regeneration(monkeypatch):
+    from backend.app import llm
+    from backend.app.schemas import Candidates
+    settings().demo_mode = False
+    generations = 0
+    async def generate(inventory, preferences, errors):
+        nonlocal generations
+        generations += 1
+        if generations > 1:
+            assert errors  # Feedback reaches regeneration.
+        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in range(3)])
+    async def evaluate(recipe, inventory, preferences):
+        return Evaluation(inventory_utilization=1, dietary_fit=1, recipe_feasibility=.9,
+            cooking_time_fit=1, instruction_quality=.9, overall_score=.5 if generations == 1 else .9)
+    monkeypatch.setattr(llm, 'generate', generate)
+    monkeypatch.setattr(llm, 'evaluate', evaluate)
+    async def tools(name):
+        return INVENTORY if name == 'get_inventory' else Preferences().model_dump()
+    result = await build_graph(tools).ainvoke({})
+    assert result['attempts'] == 2
+    assert len(result['final_recipes']) == 3
+    assert all(r['evaluation'].overall_score >= .75 for r in result['final_recipes'])

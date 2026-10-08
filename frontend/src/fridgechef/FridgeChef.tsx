@@ -1,0 +1,217 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { api, defaults, DEMO, Food, Preferences, Recipe, restoreSession, Session, signIn, signOut } from './api';
+
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
+type DraftFood = Omit<Partial<Food>, 'quantity'> & { quantity?: number | string };
+type Tab = 'Kitchen' | 'Recipes' | 'History' | 'You';
+const green = '#285A43';
+const dietaryLabels: [keyof Omit<Preferences, 'max_cooking_time'>, string, string][] = [
+  ['vegetarian', 'Vegetarian', 'No meat or fish'], ['vegan', 'Vegan', 'All plant-based'], ['keto', 'Keto', 'Limit high-carb ingredients'],
+  ['gluten_free', 'Gluten-free', 'Skip gluten-containing foods'], ['dairy_free', 'Dairy-free', 'No milk or dairy'], ['high_protein', 'High-protein', 'Prefer protein-rich meals'],
+];
+function Icon({ name, size = 22, color = green }: { name: IconName; size?: number; color?: string }) { return <Ionicons name={name} size={size} color={color} />; }
+function Button({ label, onPress, busy = false, secondary = false, disabled = false, icon }: { label: string; onPress: () => void; busy?: boolean; secondary?: boolean; disabled?: boolean; icon?: IconName }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy || disabled} onPress={onPress}
+    style={({ pressed }) => [s.button, secondary && s.secondary, (busy || disabled) && { opacity: .5 }, pressed && { opacity: .8 }]}>
+    {busy ? <ActivityIndicator color={secondary ? green : '#fff'} /> : icon && <Icon name={icon} color={secondary ? green : '#fff'} size={19} />}
+    <Text style={[s.buttonText, secondary && { color: green }]}>{label}</Text></Pressable>;
+}
+function Field({ label, ...props }: React.ComponentProps<typeof TextInput> & { label: string }) {
+  return <View style={{ flex: 1 }}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor="#949A91" style={s.input} {...props} /></View>;
+}
+function Empty({ icon, title, text }: { icon: IconName; title: string; text: string }) {
+  return <View style={s.empty}><View style={s.emptyIcon}><Icon name={icon} size={30} /></View><Text style={s.cardTitle}>{title}</Text><Text style={[s.muted, { textAlign: 'center' }]}>{text}</Text></View>;
+}
+function foodIcon(name: string): IconName {
+  if (/egg|milk|cheese|yogurt/.test(name)) return 'egg-outline';
+  if (/chicken|fish|meat|beef/.test(name)) return 'fish-outline';
+  return 'leaf-outline';
+}
+
+export function FridgeChef() {
+  const queryClient = useQueryClient();
+  const [session, setSession] = useState<Session | null>(null);
+  const [booting, setBooting] = useState(true);
+  const [tab, setTab] = useState<Tab>('Kitchen');
+  const contentScroll = useRef<ScrollView>(null);
+  useEffect(() => { contentScroll.current?.scrollTo({ y: 0, animated: false }); }, [tab]);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState('');
+  const [authRegister, setAuthRegister] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [editing, setEditing] = useState<DraftFood | null>(null);
+  const [drafts, setDrafts] = useState<DraftFood[] | null>(null);
+  const [photo, setPhoto] = useState('');
+  const [prefsDraft, setPrefsDraft] = useState<Preferences>(defaults);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [attempts, setAttempts] = useState(0);
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Food | null>(null);
+  const enabled = !!session;
+  const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
+  const preferences = useQuery({ queryKey: ['chef-preferences', session?.user.id], queryFn: () => api<Preferences>('/preferences'), enabled });
+  const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history'), enabled: enabled && tab === 'History' });
+  useEffect(() => { restoreSession().then(setSession).catch(e => setError(String(e))).finally(() => setBooting(false)); }, []);
+  useEffect(() => { if (preferences.data) setPrefsDraft(preferences.data); }, [preferences.data]);
+  const foods = inventory.data ?? [];
+  const activePrefs = dietaryLabels.filter(([key]) => preferences.data?.[key]);
+
+  async function task(name: string, action: () => Promise<void>) {
+    setBusy(name); setError(''); setNotice('');
+    try { await action(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.'); }
+    finally { setBusy(''); }
+  }
+  async function refreshInventory() { await queryClient.invalidateQueries({ queryKey: ['chef-inventory'] }); }
+  function checkFood(item: DraftFood) {
+    if (!item.food_name?.trim() || !item.unit?.trim() || !Number.isFinite(Number(item.quantity)) || Number(item.quantity ?? 0) <= 0) {
+      throw new Error('Add an ingredient name, a positive quantity and a unit.');
+    }
+    return { food_name: item.food_name.trim().toLowerCase(), quantity: Number(item.quantity), unit: item.unit.trim(), source: item.source ?? 'manual' };
+  }
+  async function pickPhoto(camera: boolean) {
+    await task('photo', async () => {
+      const permission = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) throw new Error('Allow photo access in your device settings to scan ingredients.');
+      const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: .8 };
+      const result = camera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
+      if (result.canceled) return;
+      const image = await manipulateAsync(result.assets[0].uri, [{ resize: { width: 1200 } }], { compress: .75, format: SaveFormat.JPEG, base64: true });
+      if (!image.base64) throw new Error('Could not read this photo. Try another image.');
+      setPhoto(image.uri);
+      const detected = await api<{ foods: Food[] }>('/vision/recognize', 'POST', { image_base64: image.base64, mime_type: 'image/jpeg' });
+      setDrafts(detected.foods.map(f => ({ ...f, source: 'image_recognition' })));
+    });
+  }
+  async function saveDrafts() {
+    await task('confirm', async () => {
+      const values = (drafts ?? []).map(checkFood); // Validate everything before persisting any row.
+      let saved = 0;
+      try {
+        for (const value of values) { await api('/inventory', 'POST', value); saved++; }
+      } finally {
+        setDrafts(old => old?.slice(saved) ?? null);
+        await refreshInventory();
+      }
+      setDrafts(null); setPhoto(''); setNotice(`${saved} ingredients added to your kitchen.`);
+    });
+  }
+  async function generate() {
+    setTab('Recipes');
+    await task('generate', async () => {
+      setRecipes([]);
+      const data = await api<{ recipes: Recipe[]; attempts: number; message: string }>('/recipes/generate', 'POST');
+      setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
+      await queryClient.invalidateQueries({ queryKey: ['chef-history'] });
+    });
+  }
+  const queryError = inventory.error ?? preferences.error ?? (tab === 'History' ? history.error : null);
+
+  if (booting) return <SafeAreaView style={s.root}><View style={s.empty}><ActivityIndicator color={green} /><Text style={s.muted}>Opening your kitchen…</Text></View></SafeAreaView>;
+  if (!session) return <SafeAreaView style={s.root}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}><ScrollView contentContainerStyle={s.auth} keyboardShouldPersistTaps="handled">
+    <View style={s.brandMark}><Icon name="leaf" color="#fff" size={35} /></View><Text style={s.wordmark}>FridgeChef<Text style={{ color: '#C78C45' }}>.</Text></Text>
+    <Text style={s.eyebrow}>A LITTLE INSPIRATION. LESS WASTE.</Text><Text style={[s.title, { textAlign: 'center', marginTop: 35 }]}>Good food starts{ '\n' }with what you have.</Text>
+    <Text style={[s.muted, { textAlign: 'center', marginBottom: 28 }]}>Your ingredients, your preferences.{ '\n' }Let’s find something lovely to cook.</Text>
+    <View style={[s.card, { width: '100%' }]}><Text style={s.cardTitle}>{authRegister ? 'Create your kitchen' : 'Welcome to your kitchen'}</Text>
+      <Field label="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="you@example.com" />
+      <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete={authRegister ? 'new-password' : 'current-password'} placeholder="At least 8 characters" />
+      {!!error && <Text accessibilityRole="alert" style={s.errorText}>{error}</Text>}{!!notice && <Text style={s.muted}>{notice}</Text>}
+      <Button label={authRegister ? 'Create account' : 'Sign in'} busy={!!busy} disabled={!email || password.length < 8} onPress={() => task('auth', async () => {
+        const next = await signIn(email, password, authRegister);
+        if (next) { queryClient.clear(); setSession(next); if (authRegister) setTab('You'); }
+        else setNotice('Check your email to confirm your account, then sign in.');
+      })} />
+      <Pressable accessibilityRole="button" onPress={() => { setAuthRegister(!authRegister); setError(''); }}><Text style={s.link}>{authRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text></Pressable>
+    </View><Text style={s.footnote}>Only your ingredients. Always your kitchen.</Text>
+  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+
+  return <SafeAreaView style={s.root} edges={['top', 'left', 'right']}>
+    <View style={s.header}><View style={s.row}><View style={s.smallMark}><Icon name="leaf" color="#fff" size={19} /></View><Text style={s.headerBrand}>FridgeChef<Text style={{ color: '#C78C45' }}>.</Text></Text></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open preferences" style={s.avatar} onPress={() => setTab('You')}><Icon name="person-outline" size={19} /></Pressable></View>
+    {DEMO && <View style={s.demo}><Icon name="flask-outline" size={15} /><Text style={s.demoText}>LOCAL DEMO · sample recognition & recipe scores</Text></View>}
+    <ScrollView ref={contentScroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      {(!!error || !!queryError) && <View accessibilityRole="alert" style={s.error}><Text style={s.errorText}>{error || (queryError as Error).message}</Text><Pressable onPress={() => { setError(''); inventory.refetch(); preferences.refetch(); if (tab === 'History') history.refetch(); }}><Text style={s.link}>Try again</Text></Pressable></View>}
+      {!!notice && <View style={s.notice}><Icon name="information-circle-outline" size={20} /><Text style={[s.muted, { flex: 1 }]}>{notice}</Text></View>}
+      {tab === 'Kitchen' && <>
+        <Text style={s.eyebrow}>YOUR EVERYDAY KITCHEN COMPANION</Text><Text style={s.title}>A full fridge.{ '\n' }A fresh idea.</Text><Text style={s.muted}>Turn what you already have into your next favorite meal.</Text>
+        <View style={s.hero}><View style={s.heroArt}><View style={s.heroCircle}><Icon name="basket-outline" size={70} /><View style={s.spark}><Icon name="sparkles" color="#BF8C43" size={24} /></View></View><View style={s.heroBadge}><View style={s.dot} /><Text style={s.badgeText}>No extra shopping</Text></View></View>
+          <Text style={s.heroTitle}>What’s in your fridge?</Text><Text style={[s.muted, { textAlign: 'center', marginBottom: 18 }]}>Snap a photo. Confirm your ingredients.{ '\n' }We’ll take care of the inspiration.</Text>
+          <Button label="Scan my ingredients" icon="camera-outline" busy={busy === 'photo'} disabled={!!busy} onPress={() => pickPhoto(true)} />
+          <Pressable disabled={!!busy} accessibilityRole="button" onPress={() => pickPhoto(false)}><Text style={s.link}>Choose from photo library <Ionicons name="arrow-forward" size={13} /></Text></Pressable>
+        </View>
+        <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>In your kitchen <Text style={s.count}>{foods.length}</Text></Text><Text style={s.small}>Confirmed ingredients, ready for inspiration</Text></View>
+          <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel="Add ingredient" onPress={() => setEditing({ food_name: '', quantity: 1, unit: 'piece', source: 'manual' })} style={s.add}><Icon name="add" /></Pressable></View>
+        {inventory.isLoading ? <ActivityIndicator color={green} /> : foods.length === 0 ? <Empty icon="basket-outline" title="Start with what you have" text="Scan your fridge or add ingredients manually. You’re always in control of what gets saved." /> :
+          <View style={s.card}>{foods.map((food, index) => <View key={food.id} style={[s.foodRow, index > 0 && s.divider]}>
+            <View style={s.foodIcon}><Icon name={foodIcon(food.food_name)} size={24} /></View><Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel={`Edit ${food.food_name}`} style={{ flex: 1 }} onPress={() => setEditing(food)}><Text style={s.foodName}>{food.food_name}</Text><Text style={s.small}>{food.quantity} {food.unit} · {food.source === 'manual' ? 'Added by you' : 'Photo confirmed'}</Text></Pressable>
+            <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel={`Mark ${food.food_name} consumed`} style={s.iconButton} onPress={() => task('consume', async () => { await api(`/inventory/${food.id}`, 'PATCH', { consumed: true }); await refreshInventory(); })}><Icon name="checkmark-circle-outline" size={22} /></Pressable>
+            <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel={`Delete ${food.food_name}`} style={s.iconButton} onPress={() => setConfirmDelete(food)}><Icon name="trash-outline" size={18} color="#A49B90" /></Pressable>
+          </View>)}</View>}
+        <View style={s.staples}><Icon name="sparkles-outline" size={18} /><Text style={[s.small, { flex: 1 }]}>The basics are covered: salt, black pepper, water & cooking oil.</Text></View>
+        <Button label="Find something to cook" icon="sparkles-outline" busy={busy === 'generate'} disabled={!!busy || !foods.length || !preferences.data} onPress={generate} />
+        <Text style={s.footnote}>Made for your ingredients. Checked for your preferences.</Text>
+      </>}
+      {tab === 'Recipes' && <>
+        <Text style={s.eyebrow}>A LITTLE KITCHEN INSPIRATION</Text><Text style={s.title}>Your next{ '\n' }delicious idea.</Text><Text style={s.muted}>Thoughtful recipes, made from your kitchen.</Text>
+        <View style={s.chips}>{activePrefs.map(([key, label]) => <View key={key} style={s.chip}><Icon name="checkmark" size={13} /><Text style={s.chipText}>{label}</Text></View>)}<View style={s.chip}><Icon name="time-outline" size={13} /><Text style={s.chipText}>{preferences.data?.max_cooking_time ?? 30} min max</Text></View></View>
+        {busy === 'generate' ? <View style={[s.card, s.generating]}><ActivityIndicator size="large" color={green} /><Text style={s.cardTitle}>A few good ideas are simmering…</Text><Text style={[s.muted, { textAlign: 'center' }]}>Loading your kitchen, checking ingredients,{ '\n' }evaluating recipes and choosing the best matches.</Text><Text style={s.small}>This may take a couple of minutes.</Text></View> : recipes.length ? <><View style={s.sectionHeading}><Text style={s.sectionTitle}>Picked for you</Text><Text style={s.small}>{attempts} generation round{attempts === 1 ? '' : 's'}</Text></View>{recipes.map((r, i) => <RecipeCard key={r.id} recipe={r} index={i} onPress={() => setRecipe(r)} />)}</> : <Empty icon="restaurant-outline" title="Your ingredients. New possibilities." text="Generate recipes from your confirmed inventory. Only recipes that pass ingredient, preference and quality checks appear here." />}
+        <Button label={recipes.length ? 'Find more inspiration' : 'Generate my recipes'} busy={busy === 'generate'} disabled={!!busy || !foods.length || !preferences.data} icon="sparkles-outline" onPress={generate} />
+        {!foods.length && <Button label="Add ingredients first" secondary onPress={() => setTab('Kitchen')} />}
+      </>}
+      {tab === 'History' && <>
+        <Text style={s.eyebrow}>YOUR COOKING JOURNAL</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Your latest 100 recommendations, all in one place.{ '\n' }Past recipes reflect the inventory at generation time.</Text>
+        {history.isLoading ? <ActivityIndicator color={green} /> : history.data?.length ? history.data.map((r, i) => <RecipeCard key={r.id} recipe={r} index={i} onPress={() => setRecipe(r)} history />) : <Empty icon="book-outline" title="A fresh page" text="Your validated recipes will be saved here automatically when you generate them." />}
+      </>}
+      {tab === 'You' && <>
+        <Text style={s.eyebrow}>A KITCHEN THAT KNOWS YOU</Text><Text style={s.title}>Your taste.{ '\n' }Your way.</Text><Text style={s.muted}>Tell us what works for you. We’ll keep it in mind for every recipe.</Text>
+        <View style={s.card}>{dietaryLabels.map(([key, label, help], i) => <View key={key} style={[s.preferenceRow, i > 0 && s.divider]}><View style={{ flex: 1 }}><Text style={s.foodName}>{label}</Text><Text style={s.small}>{help}</Text></View><Switch accessibilityLabel={label} value={prefsDraft[key]} trackColor={{ false: '#DDDCD3', true: '#97B6A0' }} thumbColor={prefsDraft[key] ? green : '#fff'} onValueChange={v => setPrefsDraft(p => ({ ...p, [key]: v }))} /></View>)}</View>
+        <View style={s.card}><View style={s.row}><Icon name="time-outline" /><Text style={s.cardTitle}>Time on your side</Text></View><Text style={s.small}>Maximum cooking time</Text><View style={s.chips}>{[15, 30, 45, 60].map(n => <Pressable accessibilityRole="button" accessibilityState={{ selected: prefsDraft.max_cooking_time === n }} key={n} onPress={() => setPrefsDraft(p => ({ ...p, max_cooking_time: n }))} style={[s.timeChip, prefsDraft.max_cooking_time === n && { backgroundColor: green }]}><Text style={[s.chipText, prefsDraft.max_cooking_time === n && { color: '#fff' }]}>{n} min</Text></Pressable>)}</View></View>
+        <Button label="Save my preferences" busy={busy === 'preferences'} disabled={!!busy} icon="checkmark-outline" onPress={() => task('preferences', async () => { await api('/preferences', 'PUT', prefsDraft); await queryClient.invalidateQueries({ queryKey: ['chef-preferences'] }); setNotice('Preferences saved. Your next recipes will use these choices.'); })} />
+        <View style={[s.card, { marginTop: 16 }]}><Text style={s.cardTitle}>Your personal kitchen</Text><Text style={s.muted}>{session.user.email}</Text><Text style={s.small}>{DEMO ? 'Demo data stays in the local SQLite database.' : 'Your inventory, preferences and history belong to your account.'}</Text>
+        {!DEMO && <Button label="Sign out" secondary disabled={!!busy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); setSession(null); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
+      </>}
+    </ScrollView>
+    <SafeAreaView edges={['bottom']} style={s.nav}><View style={s.navInner}>{(['Kitchen', 'Recipes', 'History', 'You'] as Tab[]).map((item, i) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => { setTab(item); setNotice(''); }} style={s.navItem}><View style={[s.navIcon, tab === item && s.navSelected]}><Icon name={(['basket-outline', 'restaurant-outline', 'book-outline', 'person-outline'] as IconName[])[i]} color={tab === item ? green : '#989B92'} size={22} /></View><Text style={[s.navText, tab === item && { color: green, fontWeight: '700' }]}>{item}</Text></Pressable>)}</View></SafeAreaView>
+    <Modal visible={editing !== null} animationType="slide" transparent onRequestClose={() => !busy && setEditing(null)}><View style={s.overlay}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.sheet}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 16 }}><Text style={s.sectionTitle}>{editing?.id ? 'Edit ingredient' : 'Add an ingredient'}</Text><Text style={s.small}>Use simple English names such as egg, spinach or mushroom.</Text>
+      <Field label="Ingredient" value={editing?.food_name ?? ''} onChangeText={v => setEditing(p => ({ ...p, food_name: v }))} autoCapitalize="none" placeholder="e.g. spinach" />
+      <View style={s.row}><Field label="Quantity" keyboardType="decimal-pad" value={editing?.quantity === undefined ? '' : String(editing.quantity)} onChangeText={v => setEditing(p => ({ ...p, quantity: v }))} /><Field label="Unit" value={editing?.unit ?? ''} onChangeText={v => setEditing(p => ({ ...p, unit: v }))} placeholder="g, bag, piece" /></View>
+      {!!error && <Text style={s.errorText}>{error}</Text>}<Button label="Save ingredient" busy={busy === 'save-food'} disabled={!!busy} onPress={() => task('save-food', async () => { const value = checkFood(editing ?? {}); const { source, ...patch } = value; await api(editing?.id ? `/inventory/${editing.id}` : '/inventory', editing?.id ? 'PATCH' : 'POST', editing?.id ? patch : value); await refreshInventory(); setEditing(null); })} /><Button label="Cancel" secondary disabled={!!busy} onPress={() => setEditing(null)} /></ScrollView></KeyboardAvoidingView></View></Modal>
+    <Modal visible={drafts !== null} animationType="slide" onRequestClose={() => !busy && setDrafts(null)}><SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled"><Text style={s.eyebrow}>YOU HAVE THE FINAL SAY</Text><Text style={s.title}>Let’s check{ '\n' }the ingredients.</Text><Text style={s.muted}>{DEMO ? 'Demo mode shows sample items regardless of photo content.' : 'Photo recognition is an estimate. Check names, amounts and units before saving.'}</Text>{!!photo && <Image source={{ uri: photo }} style={s.preview} />}
+      {drafts?.map((item, i) => <View key={i} style={s.card}><View style={s.sectionHeading}><Text style={s.small}>{item.confidence === undefined ? 'Added by you' : `${Math.round(item.confidence * 100)}% recognition confidence`}</Text><Pressable accessibilityLabel={`Remove ingredient ${i + 1}`} accessibilityRole="button" disabled={!!busy} onPress={() => setDrafts(p => p!.filter((_, n) => n !== i))}><Icon name="close-circle-outline" /></Pressable></View>
+        <Field label={`Ingredient ${i + 1}`} value={item.food_name ?? ''} onChangeText={v => setDrafts(p => p!.map((f, n) => n === i ? { ...f, food_name: v } : f))} />
+        <View style={s.row}><Field label="Quantity" keyboardType="decimal-pad" value={item.quantity === undefined ? '' : String(item.quantity)} onChangeText={v => setDrafts(p => p!.map((f, n) => n === i ? { ...f, quantity: v } : f))} /><Field label="Unit" value={item.unit ?? ''} onChangeText={v => setDrafts(p => p!.map((f, n) => n === i ? { ...f, unit: v } : f))} /></View></View>)}
+      {!drafts?.length && <Text style={s.muted}>No ingredients yet. Add one manually or try a clearer photo.</Text>}{!!error && <Text accessibilityRole="alert" style={s.errorText}>{error}</Text>}
+      <Button label="Add missing ingredient" secondary disabled={!!busy} onPress={() => setDrafts(p => [...(p ?? []), { food_name: '', quantity: 1, unit: 'piece', source: 'manual' }])} />
+      <Button label={`Confirm & save ${drafts?.length ?? 0} ingredients`} busy={busy === 'confirm'} disabled={!!busy || !drafts?.length} onPress={saveDrafts} /><Button label="Discard scan" secondary disabled={!!busy} onPress={() => { setDrafts(null); setPhoto(''); }} />
+    </ScrollView></SafeAreaView></Modal>
+    <Modal visible={recipe !== null} animationType="slide" onRequestClose={() => setRecipe(null)}><SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.content}>{recipe && <><Pressable accessibilityRole="button" onPress={() => setRecipe(null)}><Text style={s.link}>← Back to recipes</Text></Pressable><View style={s.detailArt}><Icon name="restaurant-outline" size={65} /></View><Text style={s.eyebrow}>FROM YOUR KITCHEN</Text><Text style={s.title}>{recipe.recipe_name}</Text><View style={s.chips}><View style={s.chip}><Icon name="time-outline" size={15} /><Text style={s.chipText}>{recipe.cooking_time_minutes} min</Text></View><View style={s.chip}><Icon name="sparkles-outline" size={15} /><Text style={s.chipText}>{Math.round(recipe.evaluation_score * 100)}% quality score{DEMO ? ' · demo' : ''}</Text></View></View><Text style={s.muted}>{recipe.reason}</Text>
+      <Text style={s.sectionTitle}>What you’ll use</Text><View style={s.card}>{recipe.ingredients.map((item, i) => <View key={i} style={[s.ingredientLine, i > 0 && s.divider]}><Text style={[s.foodName, { flex: 1 }]}>{item.name}</Text><Text style={s.muted}>{item.quantity} {item.unit}</Text></View>)}</View><Text style={s.small}>Pantry basics: {recipe.pantry_staples.join(', ') || 'none'}</Text><Text style={s.sectionTitle}>Let’s make it</Text>{recipe.steps.map((step, i) => <View key={i} style={[s.row, { alignItems: 'flex-start' }]}><View style={s.step}><Text style={s.chipText}>{i + 1}</Text></View><Text style={[s.muted, { flex: 1, color: '#344236' }]}>{step}</Text></View>)}<View style={s.notice}><Icon name="checkmark-circle-outline" /><Text style={[s.small, { flex: 1 }]}>Passed inventory and dietary checks at generation time. Historical recipes may include ingredients you’ve since used.</Text></View><Button label="Back to my kitchen" onPress={() => { setRecipe(null); setTab('Kitchen'); }} /></>}</ScrollView></SafeAreaView></Modal>
+    <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}><View style={s.overlay}><View style={s.sheet}><Text style={s.sectionTitle}>Remove {confirmDelete?.food_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This ingredient will be removed from your inventory.</Text><Button label="Remove ingredient" busy={busy === 'delete'} onPress={() => task('delete', async () => { await api(`/inventory/${confirmDelete!.id}`, 'DELETE'); await refreshInventory(); setConfirmDelete(null); })} /><Button label="Keep ingredient" secondary disabled={!!busy} onPress={() => setConfirmDelete(null)} /></View></View></Modal>
+  </SafeAreaView>;
+}
+function RecipeCard({ recipe, index, onPress, history = false }: { recipe: Recipe; index: number; onPress: () => void; history?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`View ${recipe.recipe_name}`} onPress={onPress} style={s.recipeCard}><View style={[s.recipeArt, { backgroundColor: ['#E6EBD9', '#F1E7D4', '#E7EAE2'][index % 3] }]}><Icon name={(['restaurant-outline', 'leaf-outline', 'nutrition-outline'] as IconName[])[index % 3]} size={50} /><View style={s.recipeBadge}><Text style={s.badgeText}>{history ? new Date(recipe.created_at).toLocaleDateString() : index === 0 ? 'TOP PICK' : `IDEA ${index + 1}`}</Text></View></View><View style={{ padding: 18, gap: 10 }}><Text style={s.cardTitle}>{recipe.recipe_name}</Text><View style={s.row}><Icon name="time-outline" size={15} /><Text style={s.small}>{recipe.cooking_time_minutes} min</Text><Text style={s.small}>·</Text><Text style={s.small}>{recipe.ingredients.length} ingredients</Text><View style={{ flex: 1 }} /><Icon name="arrow-forward" size={19} /></View><Text style={s.muted} numberOfLines={2}>{recipe.reason}</Text><View style={s.row}><Icon name="checkmark-circle" size={16} /><Text style={s.chipText}>Uses your ingredients</Text></View></View></Pressable>;
+}
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#F8F7F2' }, content: { padding: 24, gap: 18, width: '100%', maxWidth: 650, alignSelf: 'center', paddingBottom: 35 },
+  header: { paddingHorizontal: 24, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: '#E7E7DC' }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  smallMark: { width: 31, height: 31, backgroundColor: green, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }, headerBrand: { fontSize: 23, fontWeight: '800', color: '#263D2C', letterSpacing: -.8 }, avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#E9EBDD', alignItems: 'center', justifyContent: 'center' },
+  eyebrow: { fontSize: 10, letterSpacing: 2, fontWeight: '700', color: '#7C876F', marginTop: 8 }, title: { fontSize: 41, lineHeight: 46, letterSpacing: -1.8, color: '#263D2C', fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' }, muted: { fontSize: 14, lineHeight: 22, color: '#7D8276' }, small: { fontSize: 12, lineHeight: 18, color: '#868B7E' },
+  hero: { padding: 23, backgroundColor: '#ECEFDF', borderRadius: 24, overflow: 'hidden' }, heroArt: { alignItems: 'center', height: 155, justifyContent: 'center' }, heroCircle: { backgroundColor: '#E0E7CB', width: 125, height: 125, borderRadius: 63, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-8deg' }] }, spark: { position: 'absolute', right: -10, top: 8 }, heroBadge: { position: 'absolute', bottom: 3, right: 5, padding: 10, borderRadius: 18, backgroundColor: '#FAFBF4', flexDirection: 'row', alignItems: 'center', gap: 6, transform: [{ rotate: '-5deg' }] }, dot: { width: 6, height: 6, backgroundColor: '#63835F', borderRadius: 3 }, badgeText: { fontSize: 10, fontWeight: '700', color: green, letterSpacing: .5 }, heroTitle: { fontSize: 23, color: '#263D2C', fontWeight: '700', textAlign: 'center', marginTop: 15, marginBottom: 9, letterSpacing: -.5 },
+  button: { minHeight: 51, borderRadius: 14, backgroundColor: green, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 9, marginTop: 4, padding: 12 }, buttonText: { color: '#fff', fontSize: 14, fontWeight: '700' }, secondary: { backgroundColor: '#E9EDDF' }, link: { color: green, fontSize: 12, textAlign: 'center', paddingVertical: 13, fontWeight: '600' },
+  card: { backgroundColor: '#FFFDF8', borderRadius: 19, padding: 18, borderWidth: 1, borderColor: '#E8E8DD', gap: 13 }, cardTitle: { color: '#2D4030', fontSize: 18, fontWeight: '700', letterSpacing: -.3 }, sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, sectionTitle: { color: '#2D4030', fontWeight: '700', fontSize: 21, letterSpacing: -.6, marginTop: 8 }, count: { color: '#9A9F90', fontSize: 17 }, add: { backgroundColor: '#E9EDDF', borderRadius: 13, width: 39, height: 39, alignItems: 'center', justifyContent: 'center' },
+  foodRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 7 }, foodIcon: { backgroundColor: '#EFF0E6', borderRadius: 13, width: 43, height: 43, alignItems: 'center', justifyContent: 'center' }, foodName: { fontSize: 14, fontWeight: '600', color: '#354534', textTransform: 'capitalize' }, iconButton: { padding: 7 }, divider: { borderTopWidth: 1, borderColor: '#EEEEE6', paddingTop: 14 }, staples: { flexDirection: 'row', gap: 10, backgroundColor: '#F0EFE6', borderRadius: 13, padding: 14, alignItems: 'center' }, footnote: { fontSize: 10, color: '#949987', textAlign: 'center', lineHeight: 17, marginTop: 5 },
+  nav: { backgroundColor: '#FFFDF8', borderTopWidth: 1, borderColor: '#E9E9DF' }, navInner: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 8, maxWidth: 650, width: '100%', alignSelf: 'center' }, navItem: { alignItems: 'center', minWidth: 65, gap: 3 }, navIcon: { paddingHorizontal: 18, paddingVertical: 5, borderRadius: 16 }, navSelected: { backgroundColor: '#EBEFDF' }, navText: { fontSize: 10, color: '#989B92' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { flexDirection: 'row', gap: 5, alignItems: 'center', paddingHorizontal: 11, paddingVertical: 7, borderRadius: 20, backgroundColor: '#EAEFDF' }, chipText: { fontSize: 11, color: green, fontWeight: '600' }, timeChip: { paddingVertical: 12, paddingHorizontal: 17, borderRadius: 12, backgroundColor: '#F0F0E7' }, preferenceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
+  empty: { paddingVertical: 35, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', gap: 15 }, emptyIcon: { backgroundColor: '#ECEFDF', width: 65, height: 65, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }, generating: { alignItems: 'center', paddingVertical: 40 },
+  recipeCard: { backgroundColor: '#FFFDF8', borderRadius: 21, borderWidth: 1, borderColor: '#E6E7DC', overflow: 'hidden' }, recipeArt: { height: 150, justifyContent: 'center', alignItems: 'center' }, recipeBadge: { position: 'absolute', top: 14, left: 14, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#FFFDF8' }, detailArt: { height: 170, backgroundColor: '#E8EEDB', borderRadius: 23, alignItems: 'center', justifyContent: 'center' }, ingredientLine: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }, step: { backgroundColor: '#E9EDDF', width: 29, height: 29, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  label: { fontSize: 11, color: '#6D7866', fontWeight: '600', marginBottom: 7 }, input: { borderWidth: 1, borderColor: '#DCDDD1', backgroundColor: '#FFFDF8', borderRadius: 11, paddingHorizontal: 13, paddingVertical: 12, fontSize: 14, color: '#2D4030', minHeight: 46 }, overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#13291F88' }, sheet: { backgroundColor: '#F8F7F2', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 25, paddingBottom: 38, maxHeight: '90%', maxWidth: 650, width: '100%', alignSelf: 'center' }, preview: { width: '100%', height: 190, borderRadius: 18 }, error: { padding: 14, backgroundColor: '#F8E9DF', borderRadius: 13 }, errorText: { color: '#A04335', fontSize: 13, lineHeight: 20 }, notice: { padding: 14, backgroundColor: '#EBEFDF', borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 10 }, demo: { backgroundColor: '#F0E6CF', padding: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, demoText: { color: '#6C684D', fontSize: 9, letterSpacing: .6 },
+  auth: { flexGrow: 1, padding: 28, alignItems: 'center', justifyContent: 'center', maxWidth: 520, width: '100%', alignSelf: 'center', gap: 15 }, brandMark: { backgroundColor: green, width: 72, height: 72, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }, wordmark: { fontSize: 35, fontWeight: '800', color: '#263D2C', letterSpacing: -1.5 },
+});

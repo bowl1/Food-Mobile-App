@@ -3,11 +3,19 @@ backend/.env
 backend/serviceAccountKey.json
 frontend/.env
 
-# Node modules / Flutter build
-backend/node_modules
+# Node modules / Expo build
+node_modules/
 frontend/node_modules
 frontend/.expo
 frontend/.expo-shared
-frontend/.dart_tool
 frontend/build
 frontend/ios/Pods
+
+# FridgeChef runtime
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/*.sqlite3
+backend/*.sqlite3-*
+.env
