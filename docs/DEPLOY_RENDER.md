@@ -2,6 +2,8 @@
 
 手机 App 连接 Render 的 HTTPS API；FastAPI 和 MCP 同一个容器运行，用户数据存入 Supabase。生产不使用本地 SQLite，不需要设置 DEMO_DB_PATH。
 
+当前已部署实例：`https://fridgechef-api-0lcg.onrender.com`，部署分支 `deploy/fridgechef-render`。
+
 ## 1. Supabase
 
 在你的 Supabase 项目 SQL Editor 执行 `supabase/migrations/001_fridgechef.sql` 一次。确认五张表存在、RLS 已启用，并开启 Email Auth。前后端使用同一个项目 URL 和 anon/publishable key；不要使用 service-role key。
