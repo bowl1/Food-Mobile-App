@@ -151,6 +151,7 @@ async def generate_recipes(request, user):
             async with tools_for(user) as call:
                 state = await build_graph(call).ainvoke({})
                 db = Store(user)
+                await db.request('recipe_drafts', 'DELETE')
                 session = (await db.request('recipe_sessions', 'POST', {
                     'agent_run_id': run_id, 'attempts': state['attempts'],
                     'free_operation_id': active_free_operation.get(),
@@ -167,7 +168,7 @@ async def generate_recipes(request, user):
     await clean_user_images(user)
     return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
             'demo': settings().demo_mode,
-            'message': '' if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
+            'message': ('' if len(recipes) == 5 else f'Only {len(recipes)} recipes passed your ingredient and preference checks.') if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
 
 
 @app.get('/ai/trial')
@@ -175,11 +176,17 @@ async def free_trial(user: Identity = Depends(authenticated)):
     return await trial_status(user)
 
 
-@app.get('/recipes/history')
-async def history(user: Identity = Depends(authenticated)):
-    # Read directly with the verified user's JWT; avoid starting an MCP process for a simple list.
-    rows = await Store(user).request('recipes', filters={'limit': '10'})
-    return rows[:10]
+@app.get('/recipes/favorites')
+async def favorites(user: Identity = Depends(authenticated)):
+    return await Store(user).favorites()
+
+
+@app.post('/recipes/{recipe_id}/favorite')
+async def save_favorite(recipe_id: UUID, user: Identity = Depends(authenticated)):
+    rows = await Store(user).save_favorite(str(recipe_id))
+    if not rows:
+        raise HTTPException(404, 'Recipe not found or no longer available. Generate a new batch.')
+    return rows[0]
 
 
 @app.post('/recipes/{recipe_id}/image')
@@ -188,9 +195,9 @@ async def image_for_recipe(recipe_id: UUID, retry: bool = False, user: Identity 
     return await recipe_image(recipe_id, user, retry)
 
 
-@app.delete('/recipes/{recipe_id}', status_code=204)
+@app.delete('/recipes/favorites/{recipe_id}', status_code=204)
 async def delete_recipe(recipe_id: UUID, user: Identity = Depends(authenticated)):
-    rows = await Store(user).request('recipes', 'DELETE', item_id=str(recipe_id))
+    rows = await Store(user).request('favorite_recipes', 'DELETE', item_id=str(recipe_id))
     if not rows:
         raise HTTPException(404, 'Recipe not found.')
     if not settings().demo_mode and rows[0].get('image_path'):

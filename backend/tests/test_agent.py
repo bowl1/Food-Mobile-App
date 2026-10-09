@@ -94,9 +94,18 @@ def test_api_and_mcp_end_to_end():
         response = client.post('/recipes/generate', headers=headers)
         assert response.status_code == 200, response.text
         result = response.json()
-        assert len(result['recipes']) == 3
+        assert len(result['recipes']) == 5
         assert result['attempts'] == 1
-        assert len(client.get('/recipes/history', headers=headers).json()) == 3
+        assert client.get('/recipes/history', headers=headers).status_code == 404
+        assert client.get('/recipes/favorites', headers=headers).json() == []
+        selected = result['recipes'][0]['id']
+        assert client.post(f'/recipes/{selected}/favorite', headers=headers).status_code == 200
+        assert len(client.get('/recipes/favorites', headers=headers).json()) == 1
+        assert client.post(f'/recipes/{selected}/favorite', headers=headers).status_code == 200
+        assert len(client.get('/recipes/favorites', headers=headers).json()) == 1
+        assert client.post('/recipes/generate', headers=headers).status_code == 200
+        assert len(client.get('/recipes/favorites', headers=headers).json()) == 1
+        assert len(asyncio.run(Store(Identity('00000000-0000-0000-0000-000000000001','local-demo')).request('recipe_drafts'))) == 5
         item = client.get('/inventory', headers=headers).json()[0]
         assert client.patch(f"/inventory/{item['id']}", headers=headers, json={'consumed': True}).status_code == 200
         assert len(client.get('/inventory', headers=headers).json()) == 1
@@ -137,7 +146,7 @@ async def test_evaluator_rejection_triggers_regeneration(monkeypatch):
         generations += 1
         if generations > 1:
             assert errors  # Feedback reaches regeneration.
-        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in range(3)])
+        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in range(5)])
     async def evaluate(recipe, inventory, preferences):
         return Evaluation(inventory_utilization=1, dietary_fit=1, recipe_feasibility=.9,
             cooking_time_fit=1, instruction_quality=.9, overall_score=.5 if generations == 1 else .9)
@@ -149,45 +158,45 @@ async def test_evaluator_rejection_triggers_regeneration(monkeypatch):
         return INVENTORY if name == 'get_inventory' else Preferences().model_dump()
     result = await build_graph(tools).ainvoke({})
     assert result['attempts'] == 2
-    assert len(result['final_recipes']) == 3
+    assert len(result['final_recipes']) == 5
     assert all(r['evaluation'].overall_score >= .75 for r in result['final_recipes'])
 
 
-def test_history_reads_saved_rows_without_starting_mcp(monkeypatch):
+def test_favorites_reads_saved_rows_without_starting_mcp(monkeypatch):
     from backend.app import main
     db = Store(Identity('00000000-0000-0000-0000-000000000001', 'local-demo'))
-    saved = asyncio.run(db.request('recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
+    saved = asyncio.run(db.request('favorite_recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
     def unexpected_mcp(*args, **kwargs):
-        raise AssertionError('History must not start an MCP subprocess')
+        raise AssertionError('Favorites must not start an MCP subprocess')
     monkeypatch.setattr(main, 'tools_for', unexpected_mcp)
     with TestClient(main.app) as client:
-        assert client.get('/recipes/history').status_code == 401
-        response = client.get('/recipes/history', headers={'Authorization': 'Bearer local-demo'})
+        assert client.get('/recipes/favorites').status_code == 401
+        response = client.get('/recipes/favorites', headers={'Authorization': 'Bearer local-demo'})
         assert response.status_code == 200
         assert response.json()[0]['id'] == saved['id']
 
 
 
-def test_history_keeps_only_latest_ten_and_permanently_deletes_older_recipes():
+def test_favorites_keep_all_saved_recipes_without_trimming():
     from backend.app.main import app
     db = Store(Identity('00000000-0000-0000-0000-000000000001', 'local-demo'))
-    saved = [asyncio.run(db.request('recipes', 'POST', {'recipe_name': f'Meal {n}'}))[0]
+    saved = [asyncio.run(db.request('favorite_recipes', 'POST', {'recipe_name': f'Meal {n}'}))[0]
              for n in range(12)]
     with TestClient(app) as client:
-        response = client.get('/recipes/history', headers={'Authorization': 'Bearer local-demo'})
+        response = client.get('/recipes/favorites', headers={'Authorization': 'Bearer local-demo'})
     assert response.status_code == 200
-    assert [row['id'] for row in response.json()] == [row['id'] for row in reversed(saved[-10:])]
-    assert len(asyncio.run(db.request('recipes'))) == 10
+    assert [row['id'] for row in response.json()] == [row['id'] for row in reversed(saved)]
+    assert len(asyncio.run(db.request('favorite_recipes'))) == 12
 
 
-def test_delete_history_recipe_is_scoped_and_persistent():
+def test_delete_favorite_is_scoped_and_persistent():
     from backend.app.main import app
     from backend.app.auth import authenticated
     owner = Identity('00000000-0000-0000-0000-000000000001', 'local-demo')
     other = Identity('00000000-0000-0000-0000-000000000002', 'local-demo')
-    saved = asyncio.run(Store(owner).request('recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
+    saved = asyncio.run(Store(owner).request('favorite_recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
     with TestClient(app) as client:
-        url = f"/recipes/{saved['id']}"
+        url = f"/recipes/favorites/{saved['id']}"
         assert client.delete(url).status_code == 401
         app.dependency_overrides[authenticated] = lambda: other
         try:
@@ -195,9 +204,9 @@ def test_delete_history_recipe_is_scoped_and_persistent():
         finally:
             app.dependency_overrides.pop(authenticated, None)
         headers = {'Authorization': 'Bearer local-demo'}
-        assert len(client.get('/recipes/history', headers=headers).json()) == 1
+        assert len(client.get('/recipes/favorites', headers=headers).json()) == 1
         assert client.delete(url, headers=headers).status_code == 204
-        assert client.get('/recipes/history', headers=headers).json() == []
+        assert client.get('/recipes/favorites', headers=headers).json() == []
         assert client.delete(url, headers=headers).status_code == 404
 
 
@@ -220,4 +229,66 @@ async def test_batch_evaluation_runs_once_and_keeps_ranking(monkeypatch):
         return INVENTORY if name == 'get_inventory' else Preferences().model_dump()
     result = await build_graph(tools).ainvoke({})
     assert len(batches) == 1 and len(batches[0]) == 5
-    assert [r['recipe'].recipe_name for r in result['final_recipes']] == ['Meal 4', 'Meal 3', 'Meal 2']
+    assert [r['recipe'].recipe_name for r in result['final_recipes']] == ['Meal 4', 'Meal 3', 'Meal 2', 'Meal 1', 'Meal 0']
+
+
+@pytest.mark.asyncio
+async def test_cloud_favorites_paginate_without_a_ten_or_hundred_item_cap(monkeypatch):
+    import httpx
+    settings().demo_mode = False
+    offsets = []
+    async def request(self, method, url, **kwargs):
+        assert kwargs['headers']['Authorization'] == 'Bearer verified-jwt'
+        assert kwargs['params']['user_id'] == 'eq.owner'
+        offset = int(kwargs['params']['offset'])
+        offsets.append(offset)
+        return httpx.Response(200, json=[{'id': str(i)} for i in range(offset, min(115, offset+100))],
+                              request=httpx.Request(method,url))
+    monkeypatch.setattr(httpx.AsyncClient,'request',request)
+    assert len(await Store(Identity('owner','verified-jwt')).favorites()) == 115
+    assert offsets == [0,100]
+
+
+@pytest.mark.asyncio
+async def test_save_rpc_uses_user_jwt_and_exact_recipe_argument(monkeypatch):
+    import httpx
+    settings().demo_mode = False
+    async def request(self, method, url, **kwargs):
+        assert url.endswith('/rpc/save_favorite_recipe')
+        assert kwargs['json'] == {'recipe_id':'recipe-id'}
+        assert kwargs['headers']['Authorization'] == 'Bearer verified-jwt'
+        return httpx.Response(200,json=[{'id':'recipe-id'}],request=httpx.Request(method,url))
+    monkeypatch.setattr(httpx.AsyncClient,'request',request)
+    assert await Store(Identity('owner','verified-jwt')).save_favorite('recipe-id') == [{'id':'recipe-id'}]
+
+
+def test_save_unknown_recipe_and_removed_history_route():
+    from backend.app.main import app
+    with TestClient(app) as client:
+        headers={'Authorization':'Bearer local-demo'}
+        assert client.post('/recipes/00000000-0000-0000-0000-000000000099/favorite').status_code == 401
+        assert client.post('/recipes/00000000-0000-0000-0000-000000000099/favorite',headers=headers).status_code == 404
+        assert client.get('/recipes/history',headers=headers).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_generation_continues_past_three_to_five_distinct_recipes(monkeypatch):
+    from backend.app import llm
+    from backend.app.schemas import Candidates
+    settings().demo_mode = False
+    rounds = []
+    async def generate(inventory, preferences, feedback):
+        rounds.append(feedback)
+        indices = range(3) if len(rounds) == 1 else range(3,5)
+        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in indices])
+    async def evaluate_many(recipes, inventory, preferences):
+        return [Evaluation(inventory_utilization=1,dietary_fit=1,recipe_feasibility=1,
+            cooking_time_fit=1,instruction_quality=1,overall_score=.9) for r in recipes]
+    monkeypatch.setattr(llm,'generate',generate)
+    monkeypatch.setattr(llm,'evaluate_many',evaluate_many)
+    async def tools(name):
+        return INVENTORY if name=='get_inventory' else Preferences().model_dump()
+    result=await build_graph(tools).ainvoke({})
+    assert result['attempts']==2
+    assert len(result['final_recipes'])==5
+    assert any('additional distinct recipes' in item and 'Meal 0' in item for item in rounds[1])

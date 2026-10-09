@@ -67,7 +67,7 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cost_test
         run: python -m pytest backend/tests/test_cost_concurrency.py -q
-      - name: Verify retention and durable image cleanup
+      - name: Verify favorites and durable image cleanup
         env:
           PGPASSWORD: postgres
         run: |

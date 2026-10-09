@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { latestHistory } from './history';
+import { sortFavorites } from './favorites';
 import { QueryClient } from '@tanstack/react-query';
 
-const names = ['chef-inventory', 'chef-history', 'chef-preferences'];
+const names = ['chef-inventory', 'chef-favorites', 'chef-preferences'];
 const maxAge = 24 * 60 * 60 * 1000;
-const key = (userId: string) => `fridgechef.data.v1.${userId}`;
+const key = (userId: string) => `fridgeout.data.v2.${userId}`;
 let writes: Promise<unknown> = Promise.resolve();
 function enqueue(work: () => Promise<unknown>) {
   writes = writes.catch(() => {}).then(work).catch(() => {});
@@ -13,6 +13,7 @@ function enqueue(work: () => Promise<unknown>) {
 
 export async function restoreKitchenCache(client: QueryClient, userId: string) {
   try {
+    await AsyncStorage.removeItem(`fridgechef.data.v1.${userId}`);
     const raw = await AsyncStorage.getItem(key(userId));
     if (!raw) return;
     const saved = JSON.parse(raw);
@@ -22,7 +23,7 @@ export async function restoreKitchenCache(client: QueryClient, userId: string) {
       if (data === undefined) continue;
       if (name !== 'chef-preferences' && !Array.isArray(data)) continue;
       // Old snapshots render immediately but must always revalidate on startup.
-      client.setQueryData([name, userId], name === 'chef-history' ? latestHistory(data) : data, { updatedAt: 0 });
+      client.setQueryData([name, userId], name === 'chef-favorites' ? sortFavorites(data) : data, { updatedAt: 0 });
     }
   } catch {
     // Storage errors never prevent login or loading authoritative cloud data.
@@ -37,7 +38,7 @@ export function watchKitchenCache(client: QueryClient, userId: string) {
     const data: Record<string, unknown> = {};
     for (const name of names) {
       const value = client.getQueryData([name, userId]);
-      if (value !== undefined) data[name] = name === 'chef-history' && Array.isArray(value) ? latestHistory(value) : value;
+      if (value !== undefined) data[name] = name === 'chef-favorites' && Array.isArray(value) ? sortFavorites(value) : value;
     }
     const snapshot = JSON.stringify({ userId, savedAt: Date.now(), data });
     void enqueue(() => AsyncStorage.setItem(key(userId), snapshot));

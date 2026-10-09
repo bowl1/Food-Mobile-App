@@ -6,7 +6,7 @@
 
 ## 1. Supabase
 
-按编号应用 `supabase/migrations/001` 到 `009`；已有项目只应用未执行的迁移。开启 Email Auth。普通库存、菜谱和图片访问使用用户 JWT 和 RLS；新费用账本和后台清理需要仅 Render 后端持有的 Supabase legacy `service_role` key。前端始终只用 anon/publishable key。
+按编号应用 `supabase/migrations/001` 到 `010`；已有项目只应用未执行的迁移。开启 Email Auth。普通库存、菜谱和图片访问使用用户 JWT 和 RLS；新费用账本和后台清理需要仅 Render 后端持有的 Supabase legacy `service_role` key。前端始终只用 anon/publishable key。
 
 ## 2. 发布后端源码
 
@@ -39,7 +39,7 @@
 
 部署成功后，访问 Render 分配的 `https://<service>.onrender.com/health`，应返回 `{"status":"ok","mode":"live"}`。`GET /inventory` 不携带 token 应返回 401。健康检查只验证 API 进程，不代表 Supabase schema 或模型权限已验证。
 
-再用真实用户登录完成：保存偏好 → 入库 → 拍照确认 → 生成 → 历史。两个不同账号互相看不到数据。真实 AI 调用会消耗 OpenAI API 额度。
+再用真实用户登录完成：保存偏好 → 入库 → 拍照确认 → 生成 → 收藏。两个不同账号互相看不到数据。真实 AI 调用会消耗 OpenAI API 额度。
 
 ## 5. 手机端
 
@@ -73,9 +73,9 @@ Render Settings → Auto-Deploy 必须设为 **Off**，避免 Render 提前部�
 ## 本次成本控制版本的发布顺序
 
 1. 在 Render → Environment 添加 `SUPABASE_SERVICE_ROLE_KEY`，值来自同项目 Supabase Settings → API Keys → Legacy API Keys 的 `service_role`；不要放在前端、GitHub 源码或聊天里。该值与 `SUPABASE_DB_URL` 不同。
-2. 按需调整试用配置和全站预算，默认值见 [成本控制说明](COST_CONTROLS.md)。008 迁移会立即永久删除每用户最新 10 条以外的菜谱并排队清理图片，发布前确认此数据清理范围。
-3. 推送到部署分支后，已有 Actions 流程会在测试通过后应用 003–009 迁移，再部署后端。无需新增 Actions Secret。
+2. 按需调整试用配置和全站预算，默认值见 [成本控制说明](COST_CONTROLS.md)。010 迁移会永久删除全部旧 History 并排队清理图片；Favorite 初始为空，后续只有用户点击 Save 的菜谱才进入收藏，不限制收藏数量。
+3. 推送到部署分支后，已有 Actions 流程会在测试通过后应用 003–010 迁移，再部署后端。无需新增 Actions Secret。
 4. 更新手机端。菜谱生成和识别现在要求 UUID `Idempotency-Key`；旧版客户端的这两个接口会返回 422，需要与后端一起发布新版 App。
-5. 验证生成、History、图片和错误提示。`/health` 不检查费用账本或服务密钥；缺少账本配置时新付费操作返回 503，已有数据读取仍可用。
+5. 验证生成、Favorite、图片和错误提示。`/health` 不检查费用账本或服务密钥；缺少账本配置时新付费操作返回 503，已有数据读取仍可用。
 
 后台清理运行在 API 进程中，启动时及运行期间每六小时分批执行；Render 免费实例休眠期间暂停，不能当作精确的定时任务。没有创建付费 worker、升级托管套餐或添加 Supabase 付费图片变换。

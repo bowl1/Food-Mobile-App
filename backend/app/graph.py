@@ -29,8 +29,12 @@ def build_graph(call_tool):
     async def generate(state):
         if not state['inventory']:
             return {'candidates': [], 'attempts': 0}
+        feedback = list(state['errors'])
+        if state['accepted']:
+            names = [row['recipe'].recipe_name for row in state['accepted']]
+            feedback.append(f'Need {5 - len(names)} additional distinct recipes. Do not repeat accepted names: {names}')
         candidates = demo.candidates(state['inventory'], state['preferences']) if settings().demo_mode else (
-            await llm.generate(state['inventory'], state['preferences'], state['errors'])).recipes
+            await llm.generate(state['inventory'], state['preferences'], feedback)).recipes
         return {'candidates': candidates, 'attempts': state['attempts'] + 1}
 
     async def validate(state):
@@ -60,10 +64,10 @@ def build_graph(call_tool):
         return {'accepted': accepted, 'errors': errors}
 
     def route(state):
-        return 'generate' if state['inventory'] and len(state['accepted']) < 3 and state['attempts'] < 3 else 'rank'
+        return 'generate' if state['inventory'] and len(state['accepted']) < 5 and state['attempts'] < 3 else 'rank'
 
     def rank(state):
-        return {'final_recipes': sorted(state['accepted'], key=lambda r: r['evaluation'].overall_score, reverse=True)[:3]}
+        return {'final_recipes': sorted(state['accepted'], key=lambda r: r['evaluation'].overall_score, reverse=True)[:5]}
 
     graph = StateGraph(AgentState)
     graph.add_node('load_context', load)

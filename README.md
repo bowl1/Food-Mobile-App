@@ -9,13 +9,13 @@ Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，�
 - Supabase 邮箱注册、登录、会话刷新；原生使用 SecureStore 保存会话，Web 仅内存保存。
 - 拍照 / 选图 → 多模态 structured output → 人工编辑和确认 → 入库。识别接口本身不写库存。
 - 食材添加、编辑、删除、标记已用完；六类饮食偏好与最长烹饪时间。
-- LangGraph：通过 MCP 加载真实库存与偏好 → 最多五个候选 → 硬规则校验 → 一次批量独立评分 → 不足三份时最多再生成两次 → 排序并保存最多三份。
+- LangGraph：通过 MCP 加载真实库存与偏好 → 最多五个候选 → 硬规则校验 → 一次批量独立评分 → 不足五份时最多再生成两次 → 排序返回最多五份。
 - 校验名称、单位、累计用量、默认调料白名单、饮食限制与烹饪时间。受限制饮食的未知食材保守拒绝；无需限制的未知食材仍可生成。
-- MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipe`、`get_recipe_history`。Agent 不调用库存修改工具。
+- MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipe`、`get_favorite_recipes`。Agent 不调用库存修改工具。
 - Supabase 按用户 RLS、菜谱会话归属的复合外键。库存、菜谱和图片读取使用用户 JWT；费用账本、图片上传和后台清理使用仅后端的 service-role key。
-- 菜谱卡片和详情按菜名、食材与步骤生成 AI 图片，图片保存到 Supabase 私有 Storage；生成与 History 同步分开，已保存图片复用，失败可手动重试。
-- 生成成功后将已保存记录立即合并到当前用户的 History 缓存，后台重新校验；登录后预加载历史。History API 直接通过用户 JWT 读取 Supabase，省去 MCP 子进程启动。
-- 推荐详情、最近 10 条历史、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
+- 菜谱卡片和详情按菜名、食材与步骤生成 AI 图片，图片保存到 Supabase 私有 Storage；生成与 Favorite 保存分开，已保存图片复用，失败可手动重试。
+- 首页生成结果点击 Save 才进入 Favorite，成功后立即更新该账号的收藏缓存并后台校验。收藏不限数量，用户主动删除才移除；Favorite API 用用户 JWT 读取，不启动 MCP。
+- 推荐详情、主动保存的收藏、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
 - Docker、离线评估数据集、自动化后端测试。
 
 不包含 freshness / expiry、共享家庭、RBAC、购物、营养 API 或食品安全判断。
@@ -89,10 +89,11 @@ evals/                   固定案例和评估 runner
 | DELETE /inventory/{uuid} | 删除库存 |
 | GET /preferences | 当前偏好，未设置时返回默认值 |
 | PUT /preferences | 保存偏好 |
-| POST /recipes/generate | 生成、校验、评分、排序、保存 |
+| POST /recipes/generate | 生成、校验、评分、排序，返回最多 5 个临时结果 |
 | POST /recipes/{id}/image | 生成或读取已保存图片的 1 小时签名链接；`?retry=true` 手动重试失败任务 |
-| DELETE /recipes/{id} | 删除本人菜谱，尝试清理对应图片 |
-| GET /recipes/history | 最近 10 条已保存推荐 |
+| POST /recipes/{id}/favorite | 主动 Save，加入收藏；重复调用不重复保存 |
+| DELETE /recipes/favorites/{id} | 永久删除本人收藏，清理对应图片 |
+| GET /recipes/favorites | 本人的全部收藏，不限制数量 |
 
 MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可信 token；MCP 再次校验。工具 schema 不接收 user_id；PostgREST 同时用用户 JWT 和用户过滤条件，数据库 RLS 最终强制隔离。stdio server 应仅由可信 API 进程启动，不直接暴露公网。MCP 失败时请求失败，不编造库存。
 
@@ -108,8 +109,8 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 
 - 单位必须与库存一致，v1 不猜测 bag → g 等单位换算。食材名称目前以简单英文为准。
 - 饮食规则使用保守词典与独立 LLM 评估，不提供过敏医疗保证或精确营养数据；high-protein 是质量偏好，无营养 API 测量。
-- 菜谱生成不会扣减库存；用户需手动标记 consumed。历史反映生成时库存。
-- 扫描确认逐条保存；部分失败时保留未保存项，避免再次提交已保存项。菜谱历史逐条写入，数据库中途故障时可能保留部分已成功记录。
+- 菜谱生成不会扣减库存；用户需手动标记 consumed。收藏反映生成时库存。
+- 扫描确认逐条保存；部分失败时保留未保存项，避免再次提交已保存项。当前一批生成草稿逐条写入，数据库中途故障时可能保留部分已成功记录。
 - Supabase 线上 RLS、多账号真机和真实模型验收需要你的项目配置；本地测试验证查询身份传播和演示集成，不能代替线上验证。
 - 已有服务端成本额度、限流和持久请求去重；尚未接入付费订阅和会员权益。批量评估保留硬规则检查，真实模型质量仍需要线上验收。
 
@@ -117,24 +118,24 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 
 ## 菜谱 AI 图片
 
-新菜谱保存时标记 pending。App 展示卡片后单独请求图片，Recipes、History 和详情通过菜谱 ID 共用查询缓存。旧菜谱默认 none，点击 Generate image 才生成；demo 不调用图片 API。请求中断或服务重启后，generating 租约超过四分钟可重新领取。每个实例最多同时生成两张，失败不自动付费重试。图片任务由 App 的独立请求驱动，不是离线后台队列；未展示的卡片会在下次展示时补图。
+新菜谱保存时标记 pending。App 展示卡片后单独请求图片，首页、Recipes、Favorite 和详情通过菜谱 ID 共用查询缓存。旧菜谱默认 none，点击 Generate image 才生成；demo 不调用图片 API。请求中断或服务重启后，generating 租约超过四分钟可重新领取。每个实例最多同时生成两张，失败不自动付费重试。图片任务由 App 的独立请求驱动，不是离线后台队列；未展示的卡片会在下次展示时补图。
 
 新图片文件存储在私有 `recipe-images` bucket 的 `user_id/recipe_id/image.jpg`，缩略图追加 `.thumb.jpg`；旧图片路径仍可读取。重试保持原路径，数据库以独立 lease ID 防止重复任务。读取和签名使用用户 JWT 和 RLS；上传及后台清理使用仅后端的 service-role key，上传前验证用户归属和路径，客户端不能直接写入 bucket。签名 URL 一小时失效，App 缓存五十分钟后可重新获取。模型返回图片前不会阻塞菜谱保存；AI 图仅作成品示意，实际效果可能不同。
 
-接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先在 Render 填写 `SUPABASE_SERVICE_ROLE_KEY`，应用 003–006 迁移，部署后端，最后更新前端；前端生成/识别接口现在需要 `Idempotency-Key` UUID。详见 [成本控制与配置](docs/COST_CONTROLS.md)。
+接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先在 Render 填写 `SUPABASE_SERVICE_ROLE_KEY`，应用 003–010 迁移，部署后端，最后更新前端；前端生成/识别接口现在需要 `Idempotency-Key` UUID。详见 [成本控制与配置](docs/COST_CONTROLS.md)。
 
 本地 SQL 验证：使用 `psql -v ON_ERROR_STOP=1 -d <disposable_database> -f <test_file>`，每个测试文件使用独立的空临时 PostgreSQL 数据库。
 
-- `backend/tests/test_migrations.sql`：首次与重复迁移、已有数据保留。
+- `backend/tests/test_migrations.sql`：首次与重复迁移、清除旧 History 并建立 Favorite。
 - `backend/tests/test_rls.sql`：跨用户菜谱、会话、图片任务与 Storage 权限隔离。
 - `backend/tests/test_recipe_image_leases.sql`：图片任务重复领取、失败重试、过期恢复。
 
 - `backend/tests/test_cost_controls.sql`：费用额度、预算预留、请求去重和账本权限。
-- `backend/tests/test_cleanup.sql`：最新十条永久保留范围、删除缓存副本、孤立图片队列和清理权限。
+- `backend/tests/test_cleanup.sql`：主动收藏、不限制数量、临时草稿清理、删除缓存副本、孤立图片队列和清理权限。
 - `backend/tests/test_cost_concurrency.py`：真实并发事务的用户额度和全站预算验收。
 
 五个 SQL 测试共用 `backend/tests/sql/setup.sql` 初始化模拟 Supabase 环境与测试数据，CI 使用独立数据库运行，再验证真实并发预算事务。
 
 ## 模型与存储成本控制
 
-免费用户下载后注册登录，每账号总共 3 次免费识别或手动生成，菜谱及 AI 图片包含在该次额度里，无到期时间、不按天或按月恢复，重装 App 不重置；全站每天最多预留 $10，失败保留内部成本计数。每轮批量评估、输出 token 上限、有限瞬时错误重试、持久幂等请求、图片恢复和缩略图减少重复消费。数据库只保留每用户最新 10 个菜谱，超出和手动删除的记录永久移除，并清理缓存副本、空会话与云端图片。详细规则、估价局限及上线步骤见 [COST_CONTROLS.md](docs/COST_CONTROLS.md)。
+免费用户下载后注册登录，每账号总共 3 次免费识别或手动生成，菜谱及 AI 图片包含在该次额度里，无到期时间、不按天或按月恢复，重装 App 不重置；全站每天最多预留 $10，失败保留内部成本计数。每轮批量评估、输出 token 上限、有限瞬时错误重试、持久幂等请求、图片恢复和缩略图减少重复消费。`favorite_recipes` 只保存主动收藏的菜谱，不限制数量；`recipe_drafts` 仅保存当前一批临时生成结果，下一轮成功生成前清掉上一批，闲置超过 24 小时由后台清理。`recipes` 是供图片和额度逻辑使用的共享视图，不再是历史表。删除会清理缓存副本、空会话与云端图片。详细规则、估价局限及上线步骤见 [COST_CONTROLS.md](docs/COST_CONTROLS.md)。

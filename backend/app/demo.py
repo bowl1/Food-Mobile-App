@@ -12,6 +12,8 @@ def candidates(inventory, preferences):
     for title, minutes, technique in [
         ('Simple skillet', 15, 'Heat cooking oil in a pan. Add the prepared ingredients and cook, stirring, until cooked through.'),
         ('Warm vegetable bowl', 20, 'Heat cooking oil in a pan. Cook the prepared ingredients in batches, then combine in a bowl.'),
+        ('Quick sauté', 15, 'Heat cooking oil, stir-fry the prepared ingredients in small batches until cooked through.'),
+        ('Warm skillet salad', 20, 'Cook the prepared ingredients thoroughly in a pan, then arrange in a bowl and season.'),
         ('One-pan supper', 25, 'Heat cooking oil in a pan. Add the prepared ingredients, cover, and cook gently until cooked through.')]:
         # Demo supports quick-cooking ingredients only, never raw rice/meat/beans with generic steps.
         items = [i for i in allowed if normalize(i['food_name']) in {'egg', 'spinach', 'mushroom', 'tomato', 'cheese', 'tofu', 'zucchini', 'broccoli'}]

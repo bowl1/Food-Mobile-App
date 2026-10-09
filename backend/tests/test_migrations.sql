@@ -7,6 +7,7 @@ insert into recipes(user_id,session_id,recipe_name,ingredients,steps,cooking_tim
 select user_id,session_id,'Legacy '||i,ingredients,steps,cooking_time_minutes,reason,evaluation,evaluation_score,
  now()-interval '100 days'+make_interval(hours=>i)
 from recipes cross join generate_series(1,12) i;
+update recipes set image_path=user_id::text||'/legacy-'||id::text||'.jpg';
 -- Existing manual installations must also accept the initial migrations.
 \ir ../../supabase/migrations/001_fridgechef.sql
 \ir ../../supabase/migrations/002_recipe_images.sql
@@ -17,12 +18,19 @@ from recipes cross join generate_series(1,12) i;
 \ir ../../supabase/migrations/007_once_only_free_trial.sql
 \ir ../../supabase/migrations/008_permanent_recent_history.sql
 \ir ../../supabase/migrations/009_three_lifetime_free_uses.sql
+insert into ai_jobs(id,user_id,kind,payload_hash,reserved_usd,result,status)
+select gen_random_uuid(),user_id,'generate','legacy-private-result',.1,
+ jsonb_build_object('recipes',jsonb_build_array(jsonb_build_object('id',id,'recipe_name',recipe_name))),'complete'
+from recipes limit 1;
+\ir ../../supabase/migrations/010_explicit_favorite_recipes.sql
 do $$ begin
- if (select count(*) from public.recipes) <> 10 then
-  raise exception 'existing recipe lost during repeated migration';
+ if exists(select 1 from public.recipe_drafts) or exists(select 1 from public.favorite_recipes) then
+  raise exception 'old history was retained or automatically favorited';
  end if;
- if (select recipe_name from public.recipes order by created_at desc limit 1) <> 'Eggs' then
-  raise exception 'existing recipe changed during repeated migration';
+ if (select count(*) from image_cleanup_queue)<>13 then raise exception 'legacy images not queued'; end if;
+ if exists(select 1 from ai_jobs where payload_hash='legacy-private-result' and result->'recipes'<>'[]'::jsonb) then raise exception 'old cached history retained'; end if;
+ if (select relkind from pg_class where oid='public.recipes'::regclass)<>'v' then
+  raise exception 'legacy history table still exists';
  end if;
 end $$;
-select 'migration and existing data checks passed' as result;
+select 'migration deletes old history and creates explicit favorites' as result;

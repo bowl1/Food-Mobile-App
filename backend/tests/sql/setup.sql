@@ -47,6 +47,7 @@ grant all on storage.objects to authenticated;
 \ir ../../../supabase/migrations/007_once_only_free_trial.sql
 \ir ../../../supabase/migrations/008_permanent_recent_history.sql
 \ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
+\ir ../../../supabase/migrations/010_explicit_favorite_recipes.sql
 \endif
 insert into auth.users
 values ('00000000-0000-0000-0000-000000000001'),
@@ -59,7 +60,12 @@ values (
         1,
         'complete'
     );
-insert into public.recipes (
+\if :{?legacy_only}
+\set recipe_table public.recipes
+\else
+\set recipe_table public.recipe_drafts
+\endif
+insert into :recipe_table (
         id,
         user_id,
         session_id,

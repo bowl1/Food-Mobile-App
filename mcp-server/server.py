@@ -45,15 +45,14 @@ async def save_recipe(recipe: Recipe, evaluation: Evaluation, session_id: str) -
     db = await store()
     if not await db.request('recipe_sessions', item_id=session_id):
         raise ValueError('Session does not belong to the authenticated user')
-    return json.dumps(await db.request('recipes', 'POST', {**recipe.model_dump(),
+    return json.dumps(await db.request('recipe_drafts', 'POST', {**recipe.model_dump(),
         'image_status': 'none' if settings().demo_mode else 'pending',
         'evaluation': evaluation.model_dump(), 'evaluation_score': evaluation.overall_score, 'session_id': session_id}))
 
 
 @mcp.tool()
-async def get_recipe_history() -> str:
-    rows = await (await store()).request('recipes', filters={'limit': '10'})
-    return json.dumps(rows[:10])
+async def get_favorite_recipes() -> str:
+    return json.dumps(await (await store()).favorites())
 
 
 if __name__ == '__main__':

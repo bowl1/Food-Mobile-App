@@ -106,7 +106,7 @@ async def test_image_api_requires_auth_and_demo_does_not_call_provider(monkeypat
     monkeypatch.setenv('DEMO_DB_PATH', str(tmp_path / 'demo.sqlite3'))
     settings.cache_clear()
     saved = (await Store(Identity('00000000-0000-0000-0000-000000000001', 'local-demo')).request(
-        'recipes', 'POST', {'recipe_name': 'Demo'}))[0]
+        'recipe_drafts', 'POST', {'recipe_name': 'Demo'}))[0]
     def unexpected(*args, **kwargs): raise AssertionError('No demo image billing')
     monkeypatch.setattr(images, 'generate_image', unexpected)
     with TestClient(app) as client:

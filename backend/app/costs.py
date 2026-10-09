@@ -28,7 +28,7 @@ async def admin(path, method='POST', data=None, params=None):
             response.raise_for_status()
             return response.json() if response.content else []
         except httpx.HTTPError:
-            raise HTTPException(503, 'AI accounting unavailable. Check History before retrying.') from None
+            raise HTTPException(503, 'AI accounting unavailable. Check your recipes before retrying.') from None
 
 
 async def run_paid(user, kind, job_id, payload, action, included_operation=None):
@@ -72,7 +72,7 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
         if isinstance(value, dict):
             value = {**value, 'free_operation_id': result['free_operation_id']}
         if not await admin('ai_jobs', 'PATCH', {'status': 'complete', 'result': value}, params):
-            raise HTTPException(503, 'Operation expired. Check History before starting another.')
+            raise HTTPException(503, 'Operation expired. Check your recipes before starting another.')
         return value
     except BaseException as exc:
         # Shield accounting from cancellation; never silently release paid reservations.
