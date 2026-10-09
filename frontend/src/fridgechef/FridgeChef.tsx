@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { api, defaults, DEMO, Food, Preferences, Recipe, restoreSession, Session, signIn, signOut } from './api';
 
+import { clearKitchenCache, restoreKitchenCache, watchKitchenCache } from './cache';
 import { RecipePhoto } from './RecipePhoto';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -62,7 +63,15 @@ export function FridgeChef() {
   const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
   const preferences = useQuery({ queryKey: ['chef-preferences', session?.user.id], queryFn: () => api<Preferences>('/preferences'), enabled });
   const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history'), enabled, staleTime: 30000 });
-  useEffect(() => { restoreSession().then(setSession).catch(e => setError(String(e))).finally(() => setBooting(false)); }, []);
+  useEffect(() => {
+    restoreSession().then(async next => {
+      if (next && !DEMO) await restoreKitchenCache(queryClient, next.user.id);
+      setSession(next);
+    }).catch(e => setError(String(e))).finally(() => setBooting(false));
+  }, [queryClient]);
+  useEffect(() => {
+    if (session && !DEMO) return watchKitchenCache(queryClient, session.user.id);
+  }, [queryClient, session?.user.id]);
   useEffect(() => { if (preferences.data) setPrefsDraft(preferences.data); }, [preferences.data]);
   const foods = inventory.data ?? [];
   const activePrefs = dietaryLabels.filter(([key]) => preferences.data?.[key]);
@@ -138,7 +147,7 @@ export function FridgeChef() {
         if (!password) throw new Error('Enter your password.');
         if (authRegister && password.length < 8) throw new Error('Use at least 8 characters for your password.');
         const next = await signIn(email, password, authRegister);
-        if (next) { queryClient.clear(); setSession(next); if (authRegister) setTab('You'); }
+        if (next) { queryClient.clear(); if (!DEMO) await restoreKitchenCache(queryClient, next.user.id); setSession(next); if (authRegister) setTab('You'); }
         else { setAuthRegister(false); setPassword(''); setNotice('Check your email (including spam) to confirm your account, then sign in.'); }
       })} />
       <Pressable accessibilityRole="button" onPress={() => { setAuthRegister(!authRegister); setError(''); setNotice(''); }}><Text style={s.link}>{authRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text></Pressable>
@@ -161,6 +170,7 @@ export function FridgeChef() {
         </View>
         <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>In your kitchen <Text style={s.count}>{foods.length}</Text></Text><Text style={s.small}>Confirmed ingredients, ready for inspiration</Text></View>
           <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel="Add ingredient" onPress={() => setEditing({ food_name: '', quantity: 1, unit: 'piece', source: 'manual' })} style={s.add}><Icon name="add" /></Pressable></View>
+        {inventory.isFetching && !inventory.isLoading && <Text style={s.small}>Syncing your kitchen…</Text>}
         {inventory.isLoading ? <ActivityIndicator color={green} /> : foods.length === 0 ? <Empty icon="basket-outline" title="Start with what you have" text="Scan your fridge or add ingredients manually. You’re always in control of what gets saved." /> :
           <View style={s.card}>{foods.map((food, index) => <View key={food.id} style={[s.foodRow, index > 0 && s.divider]}>
             <View style={s.foodIcon}><Icon name={foodIcon(food.food_name)} size={24} /></View><Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel={`Edit ${food.food_name}`} style={{ flex: 1 }} onPress={() => setEditing(food)}><Text style={s.foodName}>{food.food_name}</Text><Text style={s.small}>{food.quantity} {food.unit} · {food.source === 'manual' ? 'Added by you' : 'Photo confirmed'}</Text></Pressable>
@@ -180,6 +190,7 @@ export function FridgeChef() {
       </>}
       {tab === 'History' && <>
         <Text style={s.eyebrow}>YOUR COOKING JOURNAL</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Your latest 100 recommendations, all in one place.{ '\n' }Past recipes reflect the inventory at generation time.</Text>
+        {history.isFetching && !history.isLoading && <Text style={s.small}>Syncing your history…</Text>}
         {history.isLoading ? <ActivityIndicator color={green} /> : history.data?.length ? history.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} history /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { setError(''); setDeleteRecipe(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" /><Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text></Pressable></View>) : <Empty icon="book-outline" title="A fresh page" text="Your validated recipes will be saved here automatically when you generate them." />}
       </>}
       {tab === 'You' && <>
@@ -188,7 +199,7 @@ export function FridgeChef() {
         <View style={s.card}><View style={s.row}><Icon name="time-outline" /><Text style={s.cardTitle}>Time on your side</Text></View><Text style={s.small}>Maximum cooking time</Text><View style={s.chips}>{[15, 30, 45, 60].map(n => <Pressable accessibilityRole="button" accessibilityState={{ selected: prefsDraft.max_cooking_time === n }} key={n} onPress={() => setPrefsDraft(p => ({ ...p, max_cooking_time: n }))} style={[s.timeChip, prefsDraft.max_cooking_time === n && { backgroundColor: green }]}><Text style={[s.chipText, prefsDraft.max_cooking_time === n && { color: '#fff' }]}>{n} min</Text></Pressable>)}</View></View>
         <Button label="Save my preferences" busy={busy === 'preferences'} disabled={!!busy} icon="checkmark-outline" onPress={() => task('preferences', async () => { await api('/preferences', 'PUT', prefsDraft); await queryClient.invalidateQueries({ queryKey: ['chef-preferences'] }); setNotice('Preferences saved. Your next recipes will use these choices.'); })} />
         <View style={[s.card, { marginTop: 16 }]}><Text style={s.cardTitle}>Your personal kitchen</Text><Text style={s.muted}>{session.user.email}</Text><Text style={s.small}>{DEMO ? 'Demo data stays in the local SQLite database.' : 'Your inventory, preferences and history belong to your account.'}</Text>
-        {!DEMO && <Button label="Sign out" secondary disabled={!!busy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); setSession(null); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
+        {!DEMO && <Button label="Sign out" secondary disabled={!!busy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); await clearKitchenCache(session.user.id); setSession(null); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
       </>}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={s.nav}><View style={s.navInner}>{(['Kitchen', 'Recipes', 'History', 'You'] as Tab[]).map((item, i) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => { setTab(item); setNotice(''); }} style={s.navItem}><View style={[s.navIcon, tab === item && s.navSelected]}><Icon name={(['basket-outline', 'restaurant-outline', 'book-outline', 'person-outline'] as IconName[])[i]} color={tab === item ? green : '#989B92'} size={22} /></View><Text style={[s.navText, tab === item && { color: green, fontWeight: '700' }]}>{item}</Text></Pressable>)}</View></SafeAreaView>
