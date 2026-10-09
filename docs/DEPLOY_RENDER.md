@@ -1,4 +1,4 @@
-# FridgeChef 云端部署：Render + Supabase
+# FridgeOut 云端部署：Render + Supabase
 
 手机 App 连接 Render 的 HTTPS API；FastAPI 和 MCP 同一个容器运行，用户数据存入 Supabase。生产不使用本地 SQLite，不需要设置 DEMO_DB_PATH。
 

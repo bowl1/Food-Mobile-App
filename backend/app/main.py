@@ -39,7 +39,7 @@ async def lifespan(app):
             app.state.supabase_http = None
 
 
-app = FastAPI(title='FridgeChef API', version='1.0.0', lifespan=lifespan)
+app = FastAPI(title='FridgeOut: Recipe Wizard API', version='1.0.0', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins.split(','),
                    expose_headers=['X-AI-Job-State'], allow_methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], allow_headers=['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Free-Operation'])
 

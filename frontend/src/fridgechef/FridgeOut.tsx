@@ -1,3 +1,4 @@
+import { brand } from './brand';
 import { paidGenerate, FreeTrial } from './api';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -60,7 +61,7 @@ function foodIcon(name: string): IconName {
   return 'leaf';
 }
 
-export function FridgeChef() {
+export function FridgeOut() {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
@@ -161,8 +162,8 @@ export function FridgeChef() {
 
   if (booting) return <SafeAreaView style={s.root}><PaperTexture /><View style={s.empty}><ActivityIndicator color={green} /><Text style={s.muted}>Opening your kitchen…</Text></View></SafeAreaView>;
   if (!session) return <SafeAreaView style={s.root}><PaperTexture /><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}><ScrollView contentContainerStyle={s.auth} keyboardShouldPersistTaps="handled">
-    <Image source={brandLogo} accessibilityLabel="FridgeChef logo" style={s.brandMark} /><Text style={s.wordmark}>FridgeChef<Text style={{ color: palette.orange }}>.</Text></Text>
-    <Text style={s.eyebrow}>A LITTLE INSPIRATION. LESS WASTE.</Text><Text style={[s.title, { textAlign: 'center', marginTop: 8 }]}>Good food from{ '\n' }what’s left.</Text>
+    <Image source={brandLogo} accessibilityLabel={`${brand.name} logo`} style={s.brandMark} /><Text style={s.wordmark}>{brand.name}<Text style={{ color: palette.orange }}>.</Text></Text>
+    <Text style={s.brandDescriptor}>{brand.descriptor}</Text><Text style={s.brandTagline}>{brand.tagline}</Text><Text style={[s.title, { textAlign: 'center', marginTop: 8 }]}>Good food from{ '\n' }what’s left.</Text>
     <Image source={foodArt} accessible={false} style={s.authArt} resizeMode="contain" /><Text style={[s.muted, { textAlign: 'center', marginBottom: 10 }]}>Turn the ingredients left in your fridge into recipes you’ll love.{ '\n' }Use more. Waste less.</Text>
     <View style={[s.card, { width: '100%' }]}><SketchBorder /><Text style={s.cardTitle}>{authRegister ? 'Create your kitchen' : 'Welcome to your kitchen'}</Text>
       <Field label="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="you@example.com" />
@@ -181,15 +182,15 @@ export function FridgeChef() {
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 
   return <SafeAreaView style={s.root} edges={['top', 'left', 'right']}><PaperTexture />
-    <View style={s.header}><View style={s.row}><Image source={brandLogo} accessibilityLabel="FridgeChef logo" style={s.smallMark} /><Text style={s.headerBrand}>FridgeChef<Text style={{ color: palette.orange }}>.</Text></Text></View>
+    <View style={s.header}><View style={s.row}><Image source={brandLogo} accessibilityLabel={`${brand.name} logo`} style={s.smallMark} /><View style={s.brandLockup}><Text style={s.headerBrand}>{brand.name}<Text style={{ color: palette.orange }}>.</Text></Text><Text style={s.headerDescriptor}>{brand.descriptor}</Text></View></View>
       <Pressable accessibilityRole="button" accessibilityLabel="Open preferences" style={s.avatar} onPress={() => setTab('You')}><Icon name="person-outline" size={19} /></Pressable></View>
     {DEMO && <View style={s.demo}><Icon name="flask-outline" size={15} /><Text style={s.demoText}>LOCAL DEMO · sample recognition & recipe scores</Text></View>}
     <ScrollView ref={contentScroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       {(!!error || !!queryError) && <View accessibilityRole="alert" style={s.error}><Text style={s.errorText}>{error || (queryError as Error).message}</Text><Pressable onPress={() => { setError(''); inventory.refetch(); preferences.refetch(); if (tab === 'History') history.refetch(); }}><Text style={s.link}>Try again</Text></Pressable></View>}
-      {!DEMO && freeTrial.data && <View style={s.notice}><Icon name="sparkles-outline" size={20} /><View style={{ flex: 1 }}><Text style={s.foodName}>{freeTrial.data.exhausted ? 'You’ve used all your free tries' : `${freeTrial.data.remaining_uses} of ${freeTrial.data.total_uses} free tries remaining`}</Text><Text style={s.small}>Recipes and AI dish images included. No expiry. Free tries do not reset.</Text></View></View>}
+      {!DEMO && freeTrial.data && <View style={s.notice}><Icon name="sparkles-outline" size={20} /><View style={{ flex: 1 }}><Text style={s.foodName}>{freeTrial.data.exhausted ? 'You’ve used all your free tries' : `${freeTrial.data.remaining_uses} of ${freeTrial.data.total_uses} free tries remaining`}</Text><Text style={s.small}>Recipes and dish images included. No expiry. Free tries do not reset.</Text></View></View>}
       {!!notice && <View style={s.notice}><Icon name="information-circle-outline" size={20} /><Text style={[s.muted, { flex: 1 }]}>{notice}</Text></View>}
       {tab === 'Kitchen' && <>
-        <Text style={s.eyebrow}>LESS WASTE. MORE GOOD FOOD.</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
+        <Text style={s.eyebrow}>{brand.tagline}</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
         <View style={s.hero}><SketchBorder /><View style={s.heroArt}><Image source={kitchenArt} accessible={false} style={s.heroImage} resizeMode="contain" /><View style={s.heroBadge}><View style={s.dot} /><Text style={s.badgeText}>No extra shopping</Text></View></View>
           <Text style={s.heroTitle}>Use what’s left.</Text><Text style={[s.muted, { textAlign: 'center', marginBottom: 18 }]}>Snap what’s left. Confirm your ingredients.{ '\n' }Find a recipe that puts them to use.</Text>
           <Button label="Scan my ingredients" icon="camera-outline" busy={busy === 'photo'} disabled={!!busy} onPress={() => pickPhoto(true)} />
@@ -276,5 +277,8 @@ const s = StyleSheet.create({
   empty: { paddingVertical: 35, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', gap: 15 }, emptyIcon: { backgroundColor: '#FBE2BA', width: 74, height: 74, borderRadius: 25, borderWidth: 1, borderColor: '#E7B887', transform: [{ rotate: '-6deg' }], justifyContent: 'center', alignItems: 'center' }, generating: { alignItems: 'center', paddingVertical: 40 },
   recipeCard: { backgroundColor: '#FFFDF5', borderTopLeftRadius: 25, borderTopRightRadius: 19, borderBottomLeftRadius: 18, borderBottomRightRadius: 26, borderWidth: 1, borderColor: '#E5D5B9', overflow: 'hidden' }, recipeArt: { height: 215, justifyContent: 'center', alignItems: 'center' }, recipeBadge: { position: 'absolute', top: 14, left: 14, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#FFFDF5' }, ingredientLine: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }, step: { backgroundColor: '#E8EBCF', width: 29, height: 29, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   label: { fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', fontSize: 12, color: '#5C5140', fontWeight: '600', marginBottom: 7 }, input: { borderWidth: 1, borderColor: '#D7C4A4', backgroundColor: '#FFFDF5', borderTopLeftRadius: 13, borderTopRightRadius: 10, borderBottomLeftRadius: 10, borderBottomRightRadius: 14, paddingHorizontal: 13, paddingVertical: 12, fontSize: 14, color: '#173C35', minHeight: 46 }, overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#13291F88' }, sheet: { backgroundColor: '#FFF8E9', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 25, paddingBottom: 38, maxHeight: '90%', maxWidth: 650, width: '100%', alignSelf: 'center' }, preview: { width: '100%', height: 190, borderRadius: 18 }, error: { padding: 14, backgroundColor: '#F8E9DF', borderRadius: 13 }, errorText: { color: '#A04335', fontSize: 13, lineHeight: 20 }, notice: { padding: 14, backgroundColor: '#FBE2BA', borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 10 }, demo: { backgroundColor: '#F0E6CF', padding: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, demoText: { color: '#6C684D', fontSize: 9, letterSpacing: .6 },
+  brandLockup: { gap: 2 }, headerDescriptor: { color: palette.orange, fontSize: 10, letterSpacing: .7, fontWeight: '600' },
+  brandDescriptor: { color: palette.orange, fontSize: 17, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', fontStyle: 'italic', marginTop: -8 },
+  brandTagline: { color: green, fontSize: 14, textAlign: 'center' },
   auth: { flexGrow: 1, padding: 28, alignItems: 'center', justifyContent: 'center', maxWidth: 520, width: '100%', alignSelf: 'center', gap: 15 }, brandMark: { width: 86, height: 86, borderRadius: 28 }, wordmark: { fontSize: 35, fontWeight: '800', color: '#173C35', letterSpacing: -1.5 },
 });

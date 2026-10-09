@@ -8,7 +8,7 @@ from backend.app.store import Store
 from backend.app.config import settings
 from backend.app.schemas import InventoryInput, Recipe, Evaluation
 
-mcp = FastMCP('FridgeChef')
+mcp = FastMCP('FridgeOut')
 # Each API request owns a dedicated subprocess with one immutable bearer token.
 _request_token = os.environ.get('FRIDGECHEF_USER_TOKEN', '')
 _request_store: Store | None = None

@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "FridgeChef",
+    "name": "FridgeOut: Recipe Wizard",
     "slug": "fridgechef",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo-handdrawn.png",
+    "icon": "./assets/fridgeout-logo.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -12,34 +12,35 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo-handdrawn.png",
+        "foregroundImage": "./assets/fridgeout-logo.png",
         "backgroundColor": "#FFF8E9"
       },
       "package": "com.libowen.fridgetofood"
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/logo-handdrawn.png"
+      "favicon": "./assets/fridgeout-logo.png"
     },
     "plugins": [
       "expo-secure-store",
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow FridgeChef to recognize ingredients in your photos.",
-          "cameraPermission": "Allow FridgeChef to photograph your ingredients.",
+          "photosPermission": "Allow FridgeOut to recognize ingredients in your photos.",
+          "cameraPermission": "Allow FridgeOut to photograph your ingredients.",
           "microphonePermission": false
         }
       ],
       [
         "expo-splash-screen",
         {
-          "image": "./assets/logo-handdrawn.png",
+          "image": "./assets/fridgeout-logo.png",
           "resizeMode": "contain",
           "backgroundColor": "#FFF8E9"
         }
       ],
       "expo-font"
-    ]
+    ],
+    "description": "Cook with what you have"
   }
 }

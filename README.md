@@ -1,6 +1,8 @@
-# FridgeChef — AI Recipe Agent v1
+# FridgeOut: Recipe Wizard
 
-Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeChef 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
+*Cook with what you have*
+
+Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeOut 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
 
 ## 已实现
 
@@ -66,7 +68,7 @@ DEMO_MODE=false .venv/bin/python -m evals.run_evals
 ## 结构
 
 ```
-frontend/src/fridgechef/  新版移动 UI、会话与 API
+frontend/src/fridgechef/  移动 UI、会话与 API
 backend/app/             FastAPI、认证、数据库、LangGraph、guardrails、模型调用
 mcp-server/server.py     Python MCP stdio server
 supabase/migrations/     Schema + RLS
