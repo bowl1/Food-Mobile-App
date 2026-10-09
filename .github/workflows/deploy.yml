@@ -39,10 +39,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci && npm run typecheck
         working-directory: frontend
-      - name: Verify migrations, existing data and RLS
+      - name: Verify migrations and existing data
         env:
           PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -d migration_test -v ON_ERROR_STOP=1 -f backend/tests/test_recipe_images_migration.sql
+        run: |
+          psql -h localhost -U postgres -d migration_test -v ON_ERROR_STOP=1 -f backend/tests/test_migrations.sql
+      - name: Verify RLS isolation
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb -h localhost -U postgres rls_test
+          psql -h localhost -U postgres -d rls_test -v ON_ERROR_STOP=1 -f backend/tests/test_rls.sql
+      - name: Verify recipe image leases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb -h localhost -U postgres image_lease_test
+          psql -h localhost -U postgres -d image_lease_test -v ON_ERROR_STOP=1 -f backend/tests/test_recipe_image_leases.sql
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/deploy/fridgechef-render'
     needs: test

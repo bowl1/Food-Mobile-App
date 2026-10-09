@@ -121,4 +121,10 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 
 接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先执行 002 迁移，再部署后端，最后重新加载前端。
 
-本地 SQL 验证（使用空的临时 PostgreSQL 数据库）：`psql -v ON_ERROR_STOP=1 -d <disposable_database> -f backend/tests/test_recipe_images_migration.sql`。覆盖迁移、重复领取、失败重试、过期任务恢复及跨用户 Storage RLS。
+本地 SQL 验证：使用 `psql -v ON_ERROR_STOP=1 -d <disposable_database> -f <test_file>`，每个测试文件使用独立的空临时 PostgreSQL 数据库。
+
+- `backend/tests/test_migrations.sql`：首次与重复迁移、已有数据保留。
+- `backend/tests/test_rls.sql`：跨用户菜谱、会话、图片任务与 Storage 权限隔离。
+- `backend/tests/test_recipe_image_leases.sql`：图片任务重复领取、失败重试、过期恢复。
+
+三个测试共用 `backend/tests/sql/setup.sql` 初始化模拟 Supabase 环境与测试数据，CI 分三个步骤运行。

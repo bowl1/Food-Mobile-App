@@ -55,7 +55,7 @@ EXPO_PUBLIC_DEMO_MODE=0
 
 ## GitHub Actions 自动迁移与部署
 
-推送到 `deploy/fridgechef-render` 后，工作流先运行后端测试、前端类型检查和临时 PostgreSQL 迁移/RLS 测试。全部通过后，使用 Supabase CLI 执行尚未记录的迁移，成功后才调用 Render Hook 部署本次测试的 commit。PR 只测试，不访问生产数据库。也可以在 Actions 手动运行。
+推送到 `deploy/fridgechef-render` 后，工作流先运行后端测试、前端类型检查和临时 PostgreSQL 迁移测试、RLS 隔离测试和图片任务租约测试（各用独立数据库）。全部通过后，使用 Supabase CLI 执行尚未记录的迁移，成功后才调用 Render Hook 部署本次测试的 commit。PR 只测试，不访问生产数据库。也可以在 Actions 手动运行。
 
 GitHub Actions Secrets：
 - `SUPABASE_DB_URL`：Supabase Connect → Session pooler 的 PostgreSQL URL，包含实际数据库密码（特殊字符必须 URL 编码），建议加 `sslmode=require`。
