@@ -52,3 +52,17 @@ EXPO_PUBLIC_DEMO_MODE=0
 重启 Expo；已经打包的 App 要重新构建才能使用新的 EXPO_PUBLIC 配置。手机端只包含 public key，OpenAI key 留在 Render。后端云端部署与 App Store / Google Play 上架是两个独立步骤。
 
 参考：[Render Blueprint](https://render.com/docs/blueprint-spec)、[Free instances](https://render.com/docs/free)。
+
+## GitHub Actions 自动迁移与部署
+
+推送到 `deploy/fridgechef-render` 后，工作流先运行后端测试、前端类型检查和临时 PostgreSQL 迁移/RLS 测试。全部通过后，使用 Supabase CLI 执行尚未记录的迁移，成功后才调用 Render Hook 部署本次测试的 commit。PR 只测试，不访问生产数据库。也可以在 Actions 手动运行。
+
+GitHub Actions Secrets：
+- `SUPABASE_DB_URL`：Supabase Connect → Session pooler 的 PostgreSQL URL，包含实际数据库密码（特殊字符必须 URL 编码），建议加 `sslmode=require`。
+- `RENDER_DEPLOY_HOOK`：Render 服务 Settings → Deploy Hook。
+
+Render Settings → Auto-Deploy 必须设为 **Off**，避免 Render 提前部署；`render.yaml` 也已关闭自动部署。此设置不会阻止 GitHub Actions 调用 Hook。
+
+初始 001/002 迁移支持已手动建表的项目重复执行，保留已有记录，并重新建立项目的 RLS policies 和图片函数。Supabase CLI 会记录已执行版本，以后只执行新迁移。后续 schema 变更必须添加新的编号 SQL 文件，不要修改已执行的迁移。迁移失败时不会请求 Render 部署；生产数据库不会自动回滚，修复后重新运行工作流。
+
+工作流成功表示 Render 已接受部署请求；最终构建结果和 Live 状态请查看 Render Events。此流水线仅部署后端，不发布手机安装包。

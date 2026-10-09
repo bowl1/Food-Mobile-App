@@ -1,6 +1,10 @@
 -- Run only against an empty disposable PostgreSQL database.
 \set ON_ERROR_STOP on
-create role authenticated;
+do $$ begin
+ if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+  create role authenticated;
+ end if;
+end $$;
 create schema auth;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -19,6 +23,9 @@ insert into public.recipe_sessions (id,user_id,agent_run_id,attempts,status) val
 ('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001',gen_random_uuid(),1,'complete');
 insert into public.recipes (id,user_id,session_id,recipe_name,ingredients,steps,cooking_time_minutes,reason,evaluation,evaluation_score) values
 ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','Eggs','[]','[]',10,'test','{}',.9);
+-- Existing manual installations must also accept the initial migrations.
+\ir ../../supabase/migrations/001_fridgechef.sql
+\ir ../../supabase/migrations/002_recipe_images.sql
 set role authenticated;
 set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
 do $$ begin

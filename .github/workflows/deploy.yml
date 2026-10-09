@@ -1,0 +1,94 @@
+name: Test, migrate and deploy
+on:
+  push:
+    branches: [deploy/fridgechef-render]
+  pull_request:
+    branches: [deploy/fridgechef-render]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fridgechef-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: migration_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest -q
+        working-directory: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci && npm run typecheck
+        working-directory: frontend
+      - name: Verify migrations, existing data and RLS
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d migration_test -v ON_ERROR_STOP=1 -f backend/tests/test_recipe_images_migration.sql
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/deploy/fridgechef-render'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment configuration
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          test -n "$SUPABASE_DB_URL" || { echo 'Missing SUPABASE_DB_URL'; exit 1; }
+          test -n "$RENDER_DEPLOY_HOOK" || { echo 'Missing RENDER_DEPLOY_HOOK'; exit 1; }
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.120.0
+      - name: Apply pending database migrations
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
+      - name: Request Render deployment of tested commit
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          hook = os.environ['RENDER_DEPLOY_HOOK']
+          parts = urllib.parse.urlsplit(hook)
+          if parts.scheme != 'https' or parts.netloc != 'api.render.com':
+              raise SystemExit('Invalid Render deploy hook')
+          query = urllib.parse.parse_qsl(parts.query)
+          query.append(('ref', os.environ['GITHUB_SHA']))
+          url = urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
+          try:
+              with urllib.request.urlopen(urllib.request.Request(url, method='POST'), timeout=60) as response:
+                  if response.status not in (200, 202):
+                      raise SystemExit('Unexpected Render response')
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f'Render rejected deployment: HTTP {error.code}') from None
+          except urllib.error.URLError:
+              raise SystemExit('Could not contact Render') from None
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Database migrations succeeded. Render accepted deployment of ' + os.environ['GITHUB_SHA'] + '. Check Render for build and Live status.\n')
+          PY

@@ -19,3 +19,7 @@ __pycache__/
 backend/*.sqlite3
 backend/*.sqlite3-*
 .env
+
+# Supabase CLI local metadata
+supabase/.temp/
+supabase/.branches/
