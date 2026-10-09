@@ -1,9 +1,0 @@
-# Hand-drawn FridgeChef logo
-
-Final asset: `frontend/assets/logo-handdrawn.png` (opaque square PNG). Original source: `frontend/assets/logo.png`, retained for reference.
-
-Created with the built-in imagegen tool. Keeps the bowl, leaves, tomato and orange/cream/green identity while changing to watercolor and colored-pencil texture. Used by `theme.ts` and Expo's app icon, Android adaptive foreground, splash and web favicon settings. Native icon and launch-screen changes require a fresh app build/install; reloading Expo updates the in-app logo.
-
-## Final prompt
-
-Use case: style-transfer. Edit the supplied FridgeChef app logo into a hand-drawn watercolor and colored-pencil recipe-journal style. Preserve its recognizable composition: a centered orange ceramic bowl with its two cream decorative strokes and dot, three large green leaves with branching veins, a red tomato and small orange vegetables, surrounded by a cream circular medallion on a warm terracotta-orange square background. Keep a simple recognizable silhouette readable as a small mobile app icon. Replace all thick smooth black outlines and glossy vector shading with lively dark forest-green colored-pencil contours, delicate imperfect overlapping pencil strokes, visible hatching, translucent watercolor washes and textured paper. Same warm orange, tomato red, fresh green and cream brand colors. Softer natural handmade feel, appetizing and charming, not photorealistic, not 3D, no vector finish. Remove the large cast shadow, retain only a subtle pencil grounding shadow. Clean square 1:1 image at 1024x1024, opaque artwork filling the canvas, centered mark occupying about 65 percent of the width with generous safe margins for mobile icon masks. No typography, no letters, no watermark, no extra objects. Keep the original identity, change only its artistic medium.
