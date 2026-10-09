@@ -148,7 +148,8 @@ async def generate(request: Request, user: Identity = Depends(authenticated)):
 @app.get('/recipes/history')
 async def history(user: Identity = Depends(authenticated)):
     # Read directly with the verified user's JWT; avoid starting an MCP process for a simple list.
-    return await Store(user).request('recipes')
+    rows = await Store(user).request('recipes', filters={'limit': '10'})
+    return rows[:10]
 
 
 @app.post('/recipes/{recipe_id}/image')

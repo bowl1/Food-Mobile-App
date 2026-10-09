@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { latestHistory } from './history';
 import { QueryClient } from '@tanstack/react-query';
 
 const names = ['chef-inventory', 'chef-history', 'chef-preferences'];
@@ -21,7 +22,7 @@ export async function restoreKitchenCache(client: QueryClient, userId: string) {
       if (data === undefined) continue;
       if (name !== 'chef-preferences' && !Array.isArray(data)) continue;
       // Old snapshots render immediately but must always revalidate on startup.
-      client.setQueryData([name, userId], data, { updatedAt: 0 });
+      client.setQueryData([name, userId], name === 'chef-history' ? latestHistory(data) : data, { updatedAt: 0 });
     }
   } catch {
     // Storage errors never prevent login or loading authoritative cloud data.
@@ -36,7 +37,7 @@ export function watchKitchenCache(client: QueryClient, userId: string) {
     const data: Record<string, unknown> = {};
     for (const name of names) {
       const value = client.getQueryData([name, userId]);
-      if (value !== undefined) data[name] = value;
+      if (value !== undefined) data[name] = name === 'chef-history' && Array.isArray(value) ? latestHistory(value) : value;
     }
     const snapshot = JSON.stringify({ userId, savedAt: Date.now(), data });
     void enqueue(() => AsyncStorage.setItem(key(userId), snapshot));

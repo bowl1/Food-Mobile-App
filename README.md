@@ -13,7 +13,7 @@ Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，�
 - Supabase 五张表、按用户 RLS、菜谱会话归属的复合外键。后端使用用户 JWT，不使用 service-role key。
 - 菜谱卡片和详情按菜名、食材与步骤生成 AI 图片，图片保存到 Supabase 私有 Storage；生成与 History 同步分开，已保存图片复用，失败可手动重试。
 - 生成成功后将已保存记录立即合并到当前用户的 History 缓存，后台重新校验；登录后预加载历史。History API 直接通过用户 JWT 读取 Supabase，省去 MCP 子进程启动。
-- 推荐详情、最近 100 条历史、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
+- 推荐详情、最近 10 条历史、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
 - Docker、离线评估数据集、自动化后端测试。
 
 不包含 freshness / expiry、共享家庭、RBAC、购物、营养 API 或食品安全判断。
@@ -90,7 +90,7 @@ evals/                   固定案例和评估 runner
 | POST /recipes/generate | 生成、校验、评分、排序、保存 |
 | POST /recipes/{id}/image | 生成或读取已保存图片的 1 小时签名链接；`?retry=true` 手动重试失败任务 |
 | DELETE /recipes/{id} | 删除本人菜谱，尝试清理对应图片 |
-| GET /recipes/history | 最近 100 条已保存推荐 |
+| GET /recipes/history | 最近 10 条已保存推荐 |
 
 MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可信 token；MCP 再次校验。工具 schema 不接收 user_id；PostgREST 同时用用户 JWT 和用户过滤条件，数据库 RLS 最终强制隔离。stdio server 应仅由可信 API 进程启动，不直接暴露公网。MCP 失败时请求失败，不编造库存。
 

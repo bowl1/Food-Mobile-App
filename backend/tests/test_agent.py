@@ -165,6 +165,19 @@ def test_history_reads_saved_rows_without_starting_mcp(monkeypatch):
         assert response.json()[0]['id'] == saved['id']
 
 
+
+def test_history_returns_latest_ten_without_deleting_older_recipes():
+    from backend.app.main import app
+    db = Store(Identity('00000000-0000-0000-0000-000000000001', 'local-demo'))
+    saved = [asyncio.run(db.request('recipes', 'POST', {'recipe_name': f'Meal {n}'}))[0]
+             for n in range(12)]
+    with TestClient(app) as client:
+        response = client.get('/recipes/history', headers={'Authorization': 'Bearer local-demo'})
+    assert response.status_code == 200
+    assert [row['id'] for row in response.json()] == [row['id'] for row in reversed(saved[-10:])]
+    assert len(asyncio.run(db.request('recipes'))) == 12
+
+
 def test_delete_history_recipe_is_scoped_and_persistent():
     from backend.app.main import app
     from backend.app.auth import authenticated

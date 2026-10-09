@@ -10,6 +10,7 @@ import { api, defaults, DEMO, Food, Preferences, Recipe, restoreSession, Session
 import { clearKitchenCache, restoreKitchenCache, watchKitchenCache } from './cache';
 import { RecipePhoto } from './RecipePhoto';
 import { PaperTexture, SketchBorder } from './SketchPaper';
+import { HISTORY_LIMIT, latestHistory } from './history';
 import { HandDrawnIcon } from './HandDrawnIcon';
 import { brandLogo, foodArt, kitchenArt, palette } from './theme';
 
@@ -83,7 +84,7 @@ export function FridgeChef() {
   const enabled = !!session;
   const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
   const preferences = useQuery({ queryKey: ['chef-preferences', session?.user.id], queryFn: () => api<Preferences>('/preferences'), enabled });
-  const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history'), enabled, staleTime: 30000 });
+  const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history').then(latestHistory), enabled, staleTime: 30000 });
   useEffect(() => {
     restoreSession().then(async next => {
       if (next && !DEMO) await restoreKitchenCache(queryClient, next.user.id);
@@ -146,7 +147,7 @@ export function FridgeChef() {
       queryClient.setQueryData<Recipe[]>(historyKey, old => {
         const saved = new Map((old ?? []).map(r => [r.id, r]));
         data.recipes.forEach(r => saved.set(r.id, r));
-        return [...saved.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
+        return latestHistory([...saved.values()]);
       });
       setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
       void queryClient.invalidateQueries({ queryKey: historyKey });
@@ -210,7 +211,7 @@ export function FridgeChef() {
         {!foods.length && <Button label="Add ingredients first" secondary onPress={() => setTab('Kitchen')} />}
       </>}
       {tab === 'History' && <>
-        <Text style={s.eyebrow}>YOUR COOKING JOURNAL</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Your latest 100 recommendations, all in one place.{ '\n' }Past recipes reflect the inventory at generation time.</Text>
+        <Text style={s.eyebrow}>YOUR COOKING JOURNAL</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Your latest {HISTORY_LIMIT} recommendations, all in one place.{ '\n' }Past recipes reflect the inventory at generation time.</Text>
         {history.isFetching && !history.isLoading && <Text style={s.small}>Syncing your history…</Text>}
         {history.isLoading ? <ActivityIndicator color={green} /> : history.data?.length ? history.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} history /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { setError(''); setDeleteRecipe(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" /><Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text></Pressable></View>) : <Empty icon="book-outline" title="A fresh page" text="Your validated recipes will be saved here automatically when you generate them." />}
       </>}
