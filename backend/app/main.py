@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import anyio
 import base64
 import logging
@@ -13,10 +14,23 @@ from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
 from .mcp_client import tools_for
 from .graph import build_graph
 from . import llm
+from .http_client import new_client, use_client
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('fridgechef')
-app = FastAPI(title='FridgeChef API', version='1.0.0')
+
+
+@asynccontextmanager
+async def lifespan(app):
+    async with new_client() as client:
+        app.state.supabase_http = client
+        try:
+            yield
+        finally:
+            app.state.supabase_http = None
+
+
+app = FastAPI(title='FridgeChef API', version='1.0.0', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins.split(','),
                    allow_methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
 
@@ -26,7 +40,9 @@ async def observe(request: Request, call_next):
     request_id = str(uuid4())
     request.state.request_id = request_id
     start = time.monotonic()
-    response = await call_next(request)
+    client = getattr(request.app.state, 'supabase_http', None)
+    with use_client(client):
+        response = await call_next(request)
     response.headers['X-Request-ID'] = request_id
     log.info('request_id=%s method=%s path=%s status=%s latency_ms=%.0f', request_id,
              request.method, request.url.path, response.status_code, (time.monotonic() - start) * 1000)

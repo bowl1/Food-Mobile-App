@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import httpx
 from fastapi import Header, HTTPException
 from .config import settings
+from .http_client import supabase_client
 
 
 @dataclass(frozen=True)
@@ -16,9 +17,9 @@ async def authenticate_token(token: str) -> Identity:
         return Identity('00000000-0000-0000-0000-000000000001', token)
     if not cfg.supabase_url or not cfg.supabase_anon_key:
         raise HTTPException(503, 'Supabase is not configured.')
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with supabase_client() as client:
         try:
-            response = await client.get(f'{cfg.supabase_url}/auth/v1/user', headers={
+            response = await client.get(f'{cfg.supabase_url}/auth/v1/user', timeout=15, headers={
                 'apikey': cfg.supabase_anon_key, 'Authorization': f'Bearer {token}'})
         except httpx.HTTPError:
             raise HTTPException(503, 'Authentication service unavailable.')

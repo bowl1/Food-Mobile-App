@@ -7,6 +7,7 @@ import httpx
 from fastapi import HTTPException
 from .auth import Identity
 from .config import settings
+from .http_client import supabase_client
 from .schemas import Preferences
 
 
@@ -27,7 +28,7 @@ class Store:
         payload = data
         if method in ('POST', 'PATCH'):
             payload = {**(data or {}), 'user_id': self.identity.user_id}
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with supabase_client() as client:
             try:
                 response = await client.request(method, f'{cfg.supabase_url}/rest/v1/{table}',
                     params=params, json=payload, headers={
