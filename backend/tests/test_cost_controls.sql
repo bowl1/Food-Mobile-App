@@ -77,3 +77,45 @@ do $$ begin
  exception when insufficient_privilege then null; end;
 end $$;
 select 'three lifetime uses, included generation/images, lifetime cap, replay, budget and permissions passed' as result;
+
+-- Only the privileged generation role bypasses lifetime recipe limits.
+set role service_role;
+insert into ai_account_roles(user_id,role)
+values ('00000000-0000-0000-0000-000000000002','unlimited_recipe_generation');
+do $$
+declare owner uuid:='00000000-0000-0000-0000-000000000002'; j uuid; r jsonb;
+begin
+ delete from ai_jobs where user_id=owner;
+ delete from ai_free_operations where user_id=owner;
+ for i in 1..5 loop
+  j:=gen_random_uuid();
+  r:=reserve_free_ai_job(owner,j,'generate','role-test',.001,99,1000,3);
+  if r->>'state'<>'reserved' then raise exception 'unlimited generation blocked: %',r; end if;
+  update ai_jobs set status='complete',result='{}' where user_id=owner and id=j;
+ end loop;
+ if (free_trial_status(owner,3)->>'remaining_uses')::integer<>3 then
+  raise exception 'unlimited generation consumed scan allowance'; end if;
+ if not (free_trial_status(owner,3)->>'unlimited_generation')::boolean then
+  raise exception 'role missing from status'; end if;
+ for i in 1..3 loop
+  j:=gen_random_uuid();
+  r:=reserve_free_ai_job(owner,j,'recognize','scan-test',.001,99,1000,3);
+  if r->>'state'<>'reserved' then raise exception 'role scan blocked: %',r; end if;
+  update ai_jobs set status='complete',result='{}' where user_id=owner and id=j;
+ end loop;
+ if reserve_free_ai_job(owner,gen_random_uuid(),'recognize','scan-test',.001,99,1000,3)->>'state'<>'free_limit' then
+  raise exception 'role incorrectly grants unlimited recognition'; end if;
+ if reserve_free_ai_job(owner,gen_random_uuid(),'generate','rate-test',.001,1,1000,3)->>'state'<>'rate_limit' then
+  raise exception 'role bypassed rate limit'; end if;
+end $$;
+reset role;
+set role authenticated;
+do $$ begin
+ begin
+  insert into public.ai_account_roles(user_id,role)
+  values ('00000000-0000-0000-0000-000000000001','unlimited_recipe_generation');
+  raise exception 'user granted own entitlement';
+ exception when insufficient_privilege then null;
+ end;
+end $$;
+reset role;

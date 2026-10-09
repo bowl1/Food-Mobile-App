@@ -23,7 +23,13 @@ select gen_random_uuid(),user_id,'generate','legacy-private-result',.1,
  jsonb_build_object('recipes',jsonb_build_array(jsonb_build_object('id',id,'recipe_name',recipe_name))),'complete'
 from recipes limit 1;
 \ir ../../supabase/migrations/010_explicit_favorite_recipes.sql
+update auth.users set email='bowenivy0@gmail.com', email_confirmed_at=now()
+where id='00000000-0000-0000-0000-000000000001';
+\ir ../../supabase/migrations/011_unlimited_recipe_generation_role.sql
 do $$ begin
+ if not exists(select 1 from ai_account_roles where user_id='00000000-0000-0000-0000-000000000001') then
+  raise exception 'confirmed target account did not receive role'; end if;
+ if (select count(*) from ai_account_roles)<>1 then raise exception 'other account received role'; end if;
  if exists(select 1 from public.recipe_drafts) or exists(select 1 from public.favorite_recipes) then
   raise exception 'old history was retained or automatically favorited';
  end if;

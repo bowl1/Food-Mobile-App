@@ -186,4 +186,4 @@ async function consumeOperation(owner: string, id: string) {
   const saved = await operationQueue(owner);
   await AsyncStorage.setItem(freeOperationKey(owner), JSON.stringify(saved.filter(item => item !== id)));
 }
-export type FreeTrial = { total_uses: number; remaining_uses: number; exhausted: boolean; demo?: boolean };
+export type FreeTrial = { unlimited_generation?: boolean; total_uses: number; remaining_uses: number; exhausted: boolean; demo?: boolean };

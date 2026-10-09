@@ -172,3 +172,7 @@ Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执
 每轮通过本地校验和评分的新菜谱一次性批量写入（最多 5 条），通过 `save_recipes` MCP 工具做一次会话归属检查和一次 PostgREST 批量 POST。随后在现有 `ai_jobs.result` 保存进度，最终完成仍由原有免费额度/幂等逻辑确认。`GET /recipes/generation/{job_id}` 只返回当前登录用户自己的 generate 任务，前端每 2.5 秒查询一次，已有合格结果立刻可阅读，不等待后续补齐轮次。每次仍以 5 个为目标，最多 3 轮；收藏和生图在最终确认完成后启用。进度查询不会重新调用模型或扣试用额度；进度保存失败不阻断生成，最后 POST 返回值仍为准。需要重新加载前端以启用渐进显示，旧前端仍能收到完整结果。
 
 图片清理使用 FastAPI BackgroundTasks 在响应发送后执行，生成与删除不再等待 Storage 清理。数据库图片清理队列和定时维护继续提供重试：进程退出导致任务没跑完时，队列记录仍在，会在后续维护处理。没有新增付费 worker，没有 schema 迁移。
+
+### 管理员菜谱生成角色
+
+迁移 `011_unlimited_recipe_generation_role.sql` 为已确认邮箱 `bowenivy0@gmail.com` 的现有账号授予 `unlimited_recipe_generation`。角色按 Supabase user ID 绑定在 `ai_account_roles`，普通用户不能查询或修改；客户端传 email/role 不会改变权限。该角色只免除菜谱生成的 3 次终身额度，关联菜谱图片继续包含；照片识别仍限 3 次。速率、并发、每张图片最多 3 次尝试、幂等和全站日预算保持。角色只在数据库迁移部署后生效；如果迁移时账号不存在或邮箱未确认，不会授权，确认后由管理员执行对应 INSERT SELECT 即可，不重新执行整份迁移。删除账号会级联移除角色。

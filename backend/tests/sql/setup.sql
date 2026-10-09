@@ -10,7 +10,7 @@ end $$;
 do $$ begin if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; end $$;
 grant usage on schema public to service_role;
 create schema auth;
-create table auth.users (id uuid primary key);
+create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz);
 create function auth.uid() returns uuid language sql stable as $$
 select nullif(
         current_setting('request.jwt.claim.sub', true),
@@ -48,8 +48,9 @@ grant all on storage.objects to authenticated;
 \ir ../../../supabase/migrations/008_permanent_recent_history.sql
 \ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
 \ir ../../../supabase/migrations/010_explicit_favorite_recipes.sql
+\ir ../../../supabase/migrations/011_unlimited_recipe_generation_role.sql
 \endif
-insert into auth.users
+insert into auth.users(id)
 values ('00000000-0000-0000-0000-000000000001'),
     ('00000000-0000-0000-0000-000000000002');
 insert into public.recipe_sessions (id, user_id, agent_run_id, attempts, status)
