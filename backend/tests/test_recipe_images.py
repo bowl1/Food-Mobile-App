@@ -118,5 +118,8 @@ async def test_image_prompt_uses_recipe_and_returns_jpeg(monkeypatch):
     monkeypatch.setattr(images, 'AsyncOpenAI', Client)
     recipe = {'recipe_name': 'Spinach eggs', 'ingredients': [{'name': 'egg'}], 'pantry_staples': [], 'steps': ['Cook eggs.']}
     assert (await images.generate_image(recipe)).startswith(b'\xff\xd8\xff')
+    assert captured['model'] == settings().openai_image_model
+    assert captured['quality'] == 'low'
+    assert captured['size'] == '1024x1024'
     assert captured['output_format'] == 'jpeg'
     assert 'Spinach eggs' in captured['prompt'] and 'Cook eggs.' in captured['prompt']

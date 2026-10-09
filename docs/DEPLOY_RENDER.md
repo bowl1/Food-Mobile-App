@@ -24,7 +24,7 @@
 | SUPABASE_ANON_KEY | 同项目 anon/publishable key |
 | OPENAI_API_KEY | 后端 OpenAI key |
 | OPENAI_MODEL | gpt-6-luna |
-| OPENAI_IMAGE_MODEL | gpt-image-1-mini（可选，代码默认值；图片 API 额外计费） |
+| OPENAI_IMAGE_MODEL | gpt-image-2.5-flare（可选，代码默认值；图片 API 额外计费） |
 | DEMO_MODE | false |
 | CORS_ORIGINS | Web 客户端的准确 origin，多个以逗号分隔；原生手机不受浏览器 CORS 约束 |
 
