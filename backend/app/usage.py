@@ -1,5 +1,6 @@
 """Provider usage events. Never include prompts, photos or credentials in logs."""
 import logging
+from .monitoring import event
 
 log = logging.getLogger('fridgechef')
 
@@ -14,15 +15,18 @@ async def record_usage(model, usage, modality):
     from .costs import active_job, admin
     from .config import settings
     job = active_job.get()
+    # Store detailed usage, including cached/reasoning tokens returned by OpenAI.
+    # Estimates use configured rates; the provider invoice is authoritative.
+    rate_in, rate_out = (settings().ai_text_input_usd_per_million,
+                        settings().ai_text_output_usd_per_million)
+    if modality == 'image':
+        rate_in, rate_out = settings().ai_image_text_usd_per_million, settings().ai_image_output_usd_per_million
+    cost = (data.get('input_tokens', data.get('prompt_tokens', 0)) * rate_in +
+            data.get('output_tokens', data.get('completion_tokens', 0)) * rate_out) / 1_000_000
+    event('model_usage', model=model, modality=modality,
+          input_tokens=data.get('input_tokens', data.get('prompt_tokens', 0)),
+          output_tokens=data.get('output_tokens', data.get('completion_tokens', 0)), estimated_usd=cost)
     if job:
-        # Store detailed usage, including cached/reasoning tokens returned by OpenAI.
-        # Estimates use configured rates; the provider invoice is authoritative.
-        rate_in, rate_out = (settings().ai_text_input_usd_per_million,
-                            settings().ai_text_output_usd_per_million)
-        if modality == 'image':
-            rate_in, rate_out = settings().ai_image_text_usd_per_million, settings().ai_image_output_usd_per_million
-        cost = (data.get('input_tokens', data.get('prompt_tokens', 0)) * rate_in +
-                data.get('output_tokens', data.get('completion_tokens', 0)) * rate_out) / 1_000_000
         try:
             await admin('ai_usage', data={'user_id': job[0], 'job_id': job[1],
                 'model': model, 'modality': modality, 'usage': data, 'estimated_usd': cost})

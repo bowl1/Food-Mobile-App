@@ -20,6 +20,7 @@ from .store import Store
 from .http_client import supabase_client
 from .costs import run_paid
 from .spool import trim_spool, spool_lock
+from .monitoring import provider_call
 
 log = logging.getLogger('fridgechef')
 _slots = asyncio.Semaphore(2)
@@ -37,8 +38,9 @@ async def generate_image(recipe):
     if len(prompt.encode('utf-8')) > 6000:
         raise HTTPException(422, 'Recipe is too long to illustrate within the image budget.')
     async with AsyncOpenAI(api_key=cfg.openai_api_key, timeout=90, max_retries=0) as client:
-        result = await client.images.generate(model=cfg.openai_image_model, prompt=prompt,
-            n=1, size='1024x1024', quality='low', output_format='jpeg', output_compression=80)
+        with provider_call(cfg.openai_image_model, 'image'):
+            result = await client.images.generate(model=cfg.openai_image_model, prompt=prompt,
+                n=1, size='1024x1024', quality='low', output_format='jpeg', output_compression=80)
     from .usage import record_usage
     await record_usage(cfg.openai_image_model, getattr(result, 'usage', None), 'image')
     if not result.data or not result.data[0].b64_json:

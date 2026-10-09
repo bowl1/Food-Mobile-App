@@ -81,3 +81,19 @@ def test_real_sdk_exports_nested_spans_without_sensitive_payload(monkeypatch):
     assert spans['llm.Candidates'].context.trace_id == spans['recipes.generate'].context.trace_id
     assert all('input' not in key or 'usage' in key or 'cost' in key
                for span in spans.values() for key in span.attributes)
+
+
+@pytest.mark.parametrize('environment,enabled', [('production', True), ('development', False)])
+def test_production_or_disabled_never_initializes_sdk(monkeypatch, environment, enabled):
+    import langfuse
+    def forbidden(**kwargs):
+        pytest.fail('SDK must not initialize')
+    monkeypatch.setattr(langfuse, 'Langfuse', forbidden)
+    monkeypatch.setattr(tracing, 'settings', lambda: SimpleNamespace(
+        app_environment=environment, langfuse_enabled=enabled,
+        langfuse_public_key='present', langfuse_secret_key='present'))
+    tracing.client.cache_clear()
+    try:
+        assert tracing.client() is None
+    finally:
+        tracing.client.cache_clear()

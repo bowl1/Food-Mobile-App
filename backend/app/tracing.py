@@ -10,7 +10,8 @@ log = logging.getLogger('fridgechef')
 @lru_cache
 def client():
     cfg = settings()
-    if not cfg.langfuse_public_key or not cfg.langfuse_secret_key:
+    if (cfg.app_environment != 'development' or not cfg.langfuse_enabled
+            or not cfg.langfuse_public_key or not cfg.langfuse_secret_key):
         return None
     try:
         from langfuse import Langfuse

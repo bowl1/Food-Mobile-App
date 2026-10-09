@@ -7,6 +7,7 @@ from .guardrails import validate_recipe
 from .config import settings
 from . import llm, demo
 from .tracing import trace, traced
+from .monitoring import event
 
 log = logging.getLogger('fridgechef')
 
@@ -60,6 +61,8 @@ def build_graph(call_tool):
                     log.info('guardrail_failure count=%s', len(failures))
                     continue
                 valid.append(recipe)
+            event('guardrails', attempt=state['attempts'], candidate_count=len(state['candidates']),
+                  rejected_count=len(rejected), failure_count=sum(len(r['reasons']) for r in rejected))
             observation.update(output={'candidate_count': len(state['candidates']),
                                        'valid_count': len(valid), 'rejected': rejected})
 
@@ -83,6 +86,9 @@ def build_graph(call_tool):
                 'duplicate_count': duplicate_count, 'low_score_count': low_score_count,
                 'accepted_this_round': len(accepted) - len(state['accepted']),
                 'accepted_total': len(accepted)})
+        event('recipe_round', attempt=state['attempts'], candidate_count=len(state['candidates']),
+              valid_count=len(valid), duplicate_count=duplicate_count, low_score_count=low_score_count,
+              accepted_total=len(accepted))
         return {'accepted': accepted, 'errors': errors}
 
     def route(state):

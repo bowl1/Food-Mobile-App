@@ -14,7 +14,7 @@ from .store import Store
 from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
 from .mcp_client import tools_for
 from .graph import build_graph
-from . import llm, tracing
+from . import llm, tracing, monitoring
 from .costs import run_paid, active_free_operation, trial_status
 from .http_client import new_client, use_client
 from .maintenance import maintenance_loop, clean_user_images
@@ -51,8 +51,17 @@ async def observe(request: Request, call_next):
     request.state.request_id = request_id
     start = time.monotonic()
     client = getattr(request.app.state, 'supabase_http', None)
-    with use_client(client):
-        response = await call_next(request)
+    token = monitoring.request_id.set(request_id)
+    try:
+        with use_client(client):
+            response = await call_next(request)
+    except Exception as exc:
+        log.error('request_id=%s method=%s path=%s status=503 error_type=%s latency_ms=%.0f',
+                  request_id, request.method, request.url.path, type(exc).__name__,
+                  (time.monotonic() - start) * 1000)
+        raise
+    finally:
+        monitoring.request_id.reset(token)
     response.headers['X-Request-ID'] = request_id
     log.info('request_id=%s method=%s path=%s status=%s latency_ms=%.0f', request_id,
              request.method, request.url.path, response.status_code, (time.monotonic() - start) * 1000)
@@ -147,12 +156,17 @@ async def generate_recipes(request, user):
     run_id = str(uuid4())
     log.info('request_id=%s user_id=%s agent_run_id=%s model=%s', request.state.request_id,
              user.user_id, run_id, 'demo-fixtures' if settings().demo_mode else settings().openai_model)
-    with tracing.trace('recipes.generate', metadata={
-        'request_id': request.state.request_id, 'agent_run_id': run_id,
-        'demo': settings().demo_mode}) as observation:
-        result = await generate_recipe_batch(user, run_id)
-        observation.update(output={'recipe_count': len(result['recipes']), 'attempts': result['attempts']})
-        return result
+    token = monitoring.agent_run_id.set(run_id)
+    try:
+        with tracing.trace('recipes.generate', metadata={
+            'request_id': request.state.request_id, 'agent_run_id': run_id,
+            'demo': settings().demo_mode}) as observation:
+            result = await generate_recipe_batch(user, run_id)
+            observation.update(output={'recipe_count': len(result['recipes']), 'attempts': result['attempts']})
+            monitoring.event('recipe_result', recipe_count=len(result['recipes']), attempts=result['attempts'])
+            return result
+    finally:
+        monitoring.agent_run_id.reset(token)
 
 
 @tracing.traced('recipe_pipeline')

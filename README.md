@@ -142,13 +142,15 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 
 ### Langfuse 生成追踪
 
-可选集成，未配置两个 key 时关闭，不影响菜谱生成。到 Langfuse 创建项目，在项目 Settings → API Keys 创建密钥，再在 Render 服务 Environment 填写：
+仅开发环境使用。到 Langfuse 创建项目，在项目 Settings → API Keys 创建密钥，在本地现有 `backend/.env` 或开发专用后端填写：
 
 ```dotenv
+APP_ENVIRONMENT=development
+LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
-LANGFUSE_ENVIRONMENT=production
+LANGFUSE_ENVIRONMENT=development
 ```
 
 Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现有 `backend/.env`，不要放前端或提交密钥。部署并生成一次后，在 Langfuse Traces 找 `recipes.generate`，按 metadata 中的 `agent_run_id` 或 `request_id` 对照 Render 日志。记录每轮候选数、校验失败类别、评分、去重数、累计接受数、最终数量，以及 MCP、模型、保存和图片清理耗时。模型调用包含 Token 和按现有后端费率估算的 USD 成本（不是账单金额）。
@@ -156,3 +158,11 @@ Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现�
 不上传完整提示词、库存、饮食偏好、照片、JWT 或用户 ID；异常只记录类型。使用手工 SDK spans，因为当前直接通过 OpenAI SDK 调模型，仅加 LangGraph callback 无法覆盖全部步骤。后台批量导出，应用关闭时在线程中 flush/shutdown，不在每次生成末尾等待导出。这里只追踪实际执行的生成流程（幂等缓存命中不重新创建），以及文本模型调用；独立生图请求尚未纳入。追踪 SDK 的启动、更新、结束失败均不阻断业务。
 
 SDK 接口参考：[Langfuse instrumentation](https://langfuse.com/docs/observability/sdk/instrumentation)。
+
+### 轻量生产监控
+
+生产 Render 设置 `APP_ENVIRONMENT=production`、`LANGFUSE_ENABLED=false`，不需要 Langfuse 密钥。即使误留密钥或 enabled=true，生产环境仍不会创建 Langfuse 客户端或导出追踪。
+
+保留 Render request/error logs 和 `latency_ms`。`event=provider_call` 每次实际文本/生图模型调用记录 success/failure、操作、重试序号、错误类型和耗时；失败率为同一时间窗口 failure 数 / 总调用数（包括重试），HTTP API 失败率从请求日志的 5xx / 总请求数统计，可排除 `/health`。`event=guardrails` 记录 rejected_count（拒绝菜谱数）和 failure_count（失败规则数），`event=recipe_round` / `event=recipe_result` 记录每轮和最终数量。事件关联 request_id 和生成时的 agent_run_id；不增加外部监控网络请求或额外 LLM 调用。
+
+Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执行 [production_metrics.sql](docs/production_metrics.sql)，按 UTC 日、模型和模态聚合。日志同时记录 `event=model_usage`，缺失 usage 或持久化失败单独记录。已有清理策略保留 usage 90 天；无法拿到 usage 的失败调用可能仍收费，估算不能替代供应商账单。这里提供日志和 SQL 汇总，不自动配置告警或独立监控仪表盘。

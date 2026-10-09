@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     ai_generate_reserve_usd: float = Field(default=0.1, gt=0, allow_inf_nan=False)
     ai_recognize_reserve_usd: float = Field(default=0.02, gt=0, allow_inf_nan=False)
     ai_image_reserve_usd: float = Field(default=0.05, gt=0, allow_inf_nan=False)
+    app_environment: str = 'production'
+    langfuse_enabled: bool = False
     langfuse_public_key: str = ''
     langfuse_secret_key: str = ''
     langfuse_base_url: str = 'https://cloud.langfuse.com'
-    langfuse_environment: str = 'production'
+    langfuse_environment: str = 'development'
     openai_api_key: str = ''
     openai_model: str = 'gpt-6-luna'
     openai_image_model: str = 'gpt-image-2.5-flare'
