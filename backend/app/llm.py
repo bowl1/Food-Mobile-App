@@ -23,11 +23,11 @@ async def structured(schema, messages, max_tokens=1800):
             try:
                 completion = await client.chat.completions.parse(model=cfg.openai_model,
                     messages=messages, response_format=schema, max_completion_tokens=max_tokens)
+                from .usage import record_usage
+                await record_usage(cfg.openai_model, completion.usage, 'text')
                 parsed = completion.choices[0].message.parsed
                 if parsed is None:
                     raise ValueError('Model refused or returned an empty response')
-                from .usage import record_usage
-                await record_usage(cfg.openai_model, completion.usage, 'text')
                 return parsed
             except (RateLimitError, APIStatusError) as exc:
                 # Only retry definite transient HTTP failures. Timeouts and malformed

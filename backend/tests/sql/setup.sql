@@ -42,7 +42,9 @@ grant all on storage.objects to authenticated;
 \else
 \ir ../../../supabase/migrations/003_ai_cost_controls.sql
 \ir ../../../supabase/migrations/004_image_recovery.sql
+\ir ../../../supabase/migrations/005_storage_cleanup.sql
 \ir ../../../supabase/migrations/007_once_only_free_trial.sql
+\ir ../../../supabase/migrations/008_permanent_recent_history.sql
 \ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
 \endif
 insert into auth.users

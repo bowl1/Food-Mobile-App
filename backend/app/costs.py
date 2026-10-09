@@ -69,6 +69,8 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
     operation_token = active_free_operation.set(result['free_operation_id'])
     params = {'user_id': f'eq.{user.user_id}', 'id': f'eq.{job_id}', 'status': 'eq.running'}
     try:
+        if kind == 'image':
+            await admin('ai_jobs', 'PATCH', {'subject_id': payload['recipe_id']}, params)
         value = await action()
         if isinstance(value, dict):
             value = {**value, 'free_operation_id': result['free_operation_id']}

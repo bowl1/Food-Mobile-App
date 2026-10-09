@@ -53,6 +53,11 @@ class Store:
                        'created_at': datetime.now(timezone.utc).isoformat()}
                 db.execute('INSERT INTO records VALUES (?,?,?,?)',
                            (row['id'], self.identity.user_id, table, json.dumps(row)))
+                if table == 'recipes':
+                    db.execute('DELETE FROM records WHERE owner=? AND kind=? AND id IN '
+                               '(SELECT id FROM records WHERE owner=? AND kind=? ORDER BY rowid DESC LIMIT -1 OFFSET 10)',
+                               (self.identity.user_id, table, self.identity.user_id, table))
+                    self._clean_local_sessions(db)
                 return [row]
             matches = [r for r in rows if r['id'] == item_id]
             for row in matches:
@@ -62,7 +67,14 @@ class Store:
                     row.update(data)
                     db.execute('UPDATE records SET payload=? WHERE id=? AND owner=?',
                                (json.dumps(row), row['id'], self.identity.user_id))
+            if table == 'recipes' and method == 'DELETE':
+                self._clean_local_sessions(db)
             return matches
+
+    def _clean_local_sessions(self, db):
+        db.execute("DELETE FROM records AS s WHERE s.owner=? AND s.kind='recipe_sessions' "
+                   "AND NOT EXISTS (SELECT 1 FROM records r WHERE r.owner=s.owner AND r.kind='recipes' "
+                   "AND json_extract(r.payload,'$.session_id')=s.id)", (self.identity.user_id,))
 
     async def inventory(self):
         return [r for r in await self.request('inventory_items') if not r.get('consumed', False)]

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import anyio
+import asyncio
 import base64
 import logging
 import time
@@ -16,6 +17,7 @@ from .graph import build_graph
 from . import llm
 from .costs import run_paid, active_free_operation, trial_status
 from .http_client import new_client, use_client
+from .maintenance import maintenance_loop, clean_user_images
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('fridgechef')
@@ -25,9 +27,15 @@ log = logging.getLogger('fridgechef')
 async def lifespan(app):
     async with new_client() as client:
         app.state.supabase_http = client
+        async def housekeeping():
+            with use_client(client):
+                await maintenance_loop()
+        maintenance = asyncio.create_task(housekeeping())
         try:
             yield
         finally:
+            maintenance.cancel()
+            await asyncio.gather(maintenance, return_exceptions=True)
             app.state.supabase_http = None
 
 
@@ -152,8 +160,11 @@ async def generate_recipes(request, user):
                     saved = await call('save_recipe', {'recipe': row['recipe'].model_dump(),
                         'evaluation': row['evaluation'].model_dump(), 'session_id': session['id']})
                     recipes.append(saved[0])
+                if not recipes:
+                    await db.request('recipe_sessions', 'DELETE', item_id=session['id'])
     except TimeoutError:
         raise HTTPException(504, 'Recipe generation timed out. Please try again.')
+    await clean_user_images(user)
     return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
             'demo': settings().demo_mode,
             'message': '' if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
@@ -185,3 +196,4 @@ async def delete_recipe(recipe_id: UUID, user: Identity = Depends(authenticated)
     if not settings().demo_mode and rows[0].get('image_path'):
         from .recipe_images import remove_image
         await remove_image(user, rows[0]['image_path'])
+    await clean_user_images(user)
