@@ -11,6 +11,7 @@ Expo + TypeScript 移动应用，识别食材后由用户确认入库，通过 F
 - 校验名称、单位、累计用量、默认调料白名单、饮食限制与烹饪时间。受限制饮食的未知食材保守拒绝；无需限制的未知食材仍可生成。
 - MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipe`、`get_recipe_history`。Agent 不调用库存修改工具。
 - Supabase 五张表、按用户 RLS、菜谱会话归属的复合外键。后端使用用户 JWT，不使用 service-role key。
+- 菜谱卡片和详情按菜名、食材与步骤生成 AI 图片，图片保存到 Supabase 私有 Storage；生成与 History 同步分开，已保存图片复用，失败可手动重试。
 - 生成成功后将已保存记录立即合并到当前用户的 History 缓存，后台重新校验；登录后预加载历史。History API 直接通过用户 JWT 读取 Supabase，省去 MCP 子进程启动。
 - 推荐详情、最近 100 条历史、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
 - Docker、离线评估数据集、自动化后端测试。
@@ -31,8 +32,8 @@ Expo + TypeScript 移动应用，识别食材后由用户确认入库，通过 F
 
 ## 真实模式
 
-1. 创建 Supabase 项目，在 SQL Editor 执行 [001_fridgechef.sql](supabase/migrations/001_fridgechef.sql)，启用 Email Auth。生产环境保持邮箱确认开启。
-2. 编辑 `backend/.env`（不存在时新建），填写 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`OPENAI_API_KEY`。默认使用 `gpt-6-luna`，统一用于食材识别、菜谱生成和独立评分；可通过 `OPENAI_MODEL` 覆盖。`DEMO_MODE=false`。
+1. 创建 Supabase 项目，在 SQL Editor 执行 [001_fridgechef.sql](supabase/migrations/001_fridgechef.sql)，然后执行 [002_recipe_images.sql](supabase/migrations/002_recipe_images.sql) 创建图片字段、私有 bucket 和防重复生成函数；已有项目只需执行 002。启用 Email Auth。生产环境保持邮箱确认开启。
+2. 编辑 `backend/.env`（不存在时新建），填写 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`OPENAI_API_KEY`。默认使用 `gpt-6-luna`，统一用于食材识别、菜谱生成和独立评分；可通过 `OPENAI_MODEL` 覆盖。菜谱配图默认 `OPENAI_IMAGE_MODEL=gpt-image-1-mini`，复用后端 OpenAI key，使用 1024×1024、low quality JPEG，产生额外图片 API 费用。`DEMO_MODE=false`。
 3. 编辑 `frontend/.env`（不存在时新建），填写 `EXPO_PUBLIC_SUPABASE_URL`、`EXPO_PUBLIC_SUPABASE_ANON_KEY` 和 `EXPO_PUBLIC_API_BASE_URL`。`EXPO_PUBLIC_DEMO_MODE=0`。
 4. 运行 `./start.sh`。注册后若开启邮件验证，先点击验证邮件，再登录。在 You 页面保存偏好，然后添加食材、生成菜谱。
 
@@ -87,6 +88,7 @@ evals/                   固定案例和评估 runner
 | GET /preferences | 当前偏好，未设置时返回默认值 |
 | PUT /preferences | 保存偏好 |
 | POST /recipes/generate | 生成、校验、评分、排序、保存 |
+| POST /recipes/{id}/image | 生成或读取已保存图片的 1 小时签名链接；`?retry=true` 手动重试失败任务 |
 | GET /recipes/history | 最近 100 条已保存推荐 |
 
 MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可信 token；MCP 再次校验。工具 schema 不接收 user_id；PostgREST 同时用用户 JWT 和用户过滤条件，数据库 RLS 最终强制隔离。stdio server 应仅由可信 API 进程启动，不直接暴露公网。MCP 失败时请求失败，不编造库存。
@@ -109,3 +111,13 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 - 生产公开上线前需按流量加入用户配额 / 限流，并扩充真实食材、饮食分类与模型评估案例。
 
 实现接口参考：[LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api)、[官方 MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。
+
+## 菜谱 AI 图片
+
+新菜谱保存时标记 pending。App 展示卡片后单独请求图片，Recipes、History 和详情通过菜谱 ID 共用查询缓存。旧菜谱默认 none，点击 Generate image 才生成；demo 不调用图片 API。请求中断或服务重启后，generating 租约超过四分钟可重新领取。每个实例最多同时生成两张，失败不自动付费重试。图片任务由 App 的独立请求驱动，不是离线后台队列；未展示的卡片会在下次展示时补图。
+
+图片文件存储在私有 `recipe-images` bucket 的 `user_id/recipe_id/lease_id.jpg`，数据库只保存路径和状态。上传、读取和签名都使用用户 JWT 和 RLS，无需 service-role key。签名 URL 一小时失效，App 缓存五十分钟后可重新获取。模型返回图片前不会阻塞菜谱保存；AI 图仅作成品示意，实际效果可能不同。
+
+接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先执行 002 迁移，再部署后端，最后重新加载前端。
+
+本地 SQL 验证（使用空的临时 PostgreSQL 数据库）：`psql -v ON_ERROR_STOP=1 -d <disposable_database> -f backend/tests/test_recipe_images_migration.sql`。覆盖迁移、重复领取、失败重试、过期任务恢复及跨用户 Storage RLS。

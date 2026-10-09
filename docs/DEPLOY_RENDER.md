@@ -6,7 +6,7 @@
 
 ## 1. Supabase
 
-在你的 Supabase 项目 SQL Editor 执行 `supabase/migrations/001_fridgechef.sql` 一次。确认五张表存在、RLS 已启用，并开启 Email Auth。前后端使用同一个项目 URL 和 anon/publishable key；不要使用 service-role key。
+在你的 Supabase 项目 SQL Editor 执行 `supabase/migrations/001_fridgechef.sql` 一次，再执行 `supabase/migrations/002_recipe_images.sql` 创建 AI 图片字段、私有存储和任务租约函数。已有项目只执行 002。确认五张表存在、RLS 已启用，并开启 Email Auth。前后端使用同一个项目 URL 和 anon/publishable key；不要使用 service-role key。
 
 ## 2. 发布后端源码
 
@@ -24,6 +24,7 @@
 | SUPABASE_ANON_KEY | 同项目 anon/publishable key |
 | OPENAI_API_KEY | 后端 OpenAI key |
 | OPENAI_MODEL | gpt-6-luna |
+| OPENAI_IMAGE_MODEL | gpt-image-1-mini（可选，代码默认值；图片 API 额外计费） |
 | DEMO_MODE | false |
 | CORS_ORIGINS | Web 客户端的准确 origin，多个以逗号分隔；原生手机不受浏览器 CORS 约束 |
 

@@ -5,6 +5,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from backend.app.auth import authenticate_token
 from backend.app.store import Store
+from backend.app.config import settings
 from backend.app.schemas import InventoryInput, Recipe, Evaluation
 
 mcp = FastMCP('FridgeChef')
@@ -45,6 +46,7 @@ async def save_recipe(recipe: Recipe, evaluation: Evaluation, session_id: str) -
     if not await db.request('recipe_sessions', item_id=session_id):
         raise ValueError('Session does not belong to the authenticated user')
     return json.dumps(await db.request('recipes', 'POST', {**recipe.model_dump(),
+        'image_status': 'none' if settings().demo_mode else 'pending',
         'evaluation': evaluation.model_dump(), 'evaluation_score': evaluation.overall_score, 'session_id': session_id}))
 
 

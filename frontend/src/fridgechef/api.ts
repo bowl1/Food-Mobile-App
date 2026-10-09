@@ -9,7 +9,7 @@ const STORAGE_KEY = 'fridgechef.session.v1';
 export type Session = { access_token: string; refresh_token: string; expires_at: number; user: { id: string; email?: string } };
 export type Food = { id: string; food_name: string; quantity: number; unit: string; source: 'manual' | 'image_recognition'; confidence?: number };
 export type Preferences = { vegetarian: boolean; vegan: boolean; keto: boolean; gluten_free: boolean; dairy_free: boolean; high_protein: boolean; max_cooking_time: number };
-export type Recipe = { id: string; recipe_name: string; ingredients: { name: string; quantity: number; unit: string }[]; pantry_staples: string[]; cooking_time_minutes: number; dietary_tags: string[]; steps: string[]; reason: string; evaluation_score: number; evaluation: Record<string, number>; created_at: string };
+export type Recipe = { image_status?: 'none' | 'pending' | 'generating' | 'ready' | 'failed'; id: string; recipe_name: string; ingredients: { name: string; quantity: number; unit: string }[]; pantry_staples: string[]; cooking_time_minutes: number; dietary_tags: string[]; steps: string[]; reason: string; evaluation_score: number; evaluation: Record<string, number>; created_at: string };
 export const defaults: Preferences = { vegetarian: false, vegan: false, keto: false, gluten_free: false, dairy_free: false, high_protein: false, max_cooking_time: 30 };
 let current: Session | null = null;
 let refreshing: Promise<Session> | null = null;
@@ -85,7 +85,7 @@ export async function signOut() {
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const access = await token();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), path === '/recipes/generate' ? 250000 : 100000);
+  const timer = setTimeout(() => controller.abort(), path === '/recipes/generate' ? 250000 : path.includes('/image') ? 180000 : 100000);
   try {
     const response = await fetch(`${BASE}${path}`, { method, signal: controller.signal,
       headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },

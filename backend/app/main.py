@@ -133,3 +133,9 @@ async def generate(request: Request, user: Identity = Depends(authenticated)):
 async def history(user: Identity = Depends(authenticated)):
     # Read directly with the verified user's JWT; avoid starting an MCP process for a simple list.
     return await Store(user).request('recipes')
+
+
+@app.post('/recipes/{recipe_id}/image')
+async def image_for_recipe(recipe_id: UUID, retry: bool = False, user: Identity = Depends(authenticated)):
+    from .recipe_images import recipe_image
+    return await recipe_image(recipe_id, user, retry)

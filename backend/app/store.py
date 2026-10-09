@@ -14,7 +14,7 @@ class Store:
     def __init__(self, identity: Identity):
         self.identity = identity
 
-    async def request(self, table, method='GET', data=None, item_id=None):
+    async def request(self, table, method='GET', data=None, item_id=None, filters=None):
         cfg = settings()
         if cfg.demo_mode and self.identity.token == 'local-demo':
             return self._local(table, method, data, item_id)
@@ -23,6 +23,7 @@ class Store:
             params['id'] = f'eq.{item_id}'
         if table in ('recipes', 'recipe_sessions') and method == 'GET':
             params.update(order='created_at.desc', limit='100')
+        params.update(filters or {})
         payload = data
         if method in ('POST', 'PATCH'):
             payload = {**(data or {}), 'user_id': self.identity.user_id}
