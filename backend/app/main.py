@@ -14,7 +14,7 @@ from .store import Store
 from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
 from .mcp_client import tools_for
 from .graph import build_graph
-from . import llm
+from . import llm, tracing
 from .costs import run_paid, active_free_operation, trial_status
 from .http_client import new_client, use_client
 from .maintenance import maintenance_loop, clean_user_images
@@ -37,6 +37,7 @@ async def lifespan(app):
             maintenance.cancel()
             await asyncio.gather(maintenance, return_exceptions=True)
             app.state.supabase_http = None
+            await anyio.to_thread.run_sync(tracing.shutdown)
 
 
 app = FastAPI(title='FridgeOut: Recipe Wizard API', version='1.0.0', lifespan=lifespan)
@@ -146,26 +147,41 @@ async def generate_recipes(request, user):
     run_id = str(uuid4())
     log.info('request_id=%s user_id=%s agent_run_id=%s model=%s', request.state.request_id,
              user.user_id, run_id, 'demo-fixtures' if settings().demo_mode else settings().openai_model)
+    with tracing.trace('recipes.generate', metadata={
+        'request_id': request.state.request_id, 'agent_run_id': run_id,
+        'demo': settings().demo_mode}) as observation:
+        result = await generate_recipe_batch(user, run_id)
+        observation.update(output={'recipe_count': len(result['recipes']), 'attempts': result['attempts']})
+        return result
+
+
+@tracing.traced('recipe_pipeline')
+async def generate_recipe_batch(user, run_id):
     try:
         with anyio.fail_after(240):
             async with tools_for(user) as call:
-                state = await build_graph(call).ainvoke({})
-                db = Store(user)
-                await db.request('recipe_drafts', 'DELETE')
-                session = (await db.request('recipe_sessions', 'POST', {
-                    'agent_run_id': run_id, 'attempts': state['attempts'],
-                    'free_operation_id': active_free_operation.get(),
-                    'status': 'complete' if state['final_recipes'] else 'no_match'}))[0]
-                recipes = []
-                for row in state['final_recipes']:
-                    saved = await call('save_recipe', {'recipe': row['recipe'].model_dump(),
-                        'evaluation': row['evaluation'].model_dump(), 'session_id': session['id']})
-                    recipes.append(saved[0])
-                if not recipes:
-                    await db.request('recipe_sessions', 'DELETE', item_id=session['id'])
+                async def traced_call(name, arguments=None):
+                    with tracing.trace('mcp.' + name):
+                        return await call(name, arguments) if arguments is not None else await call(name)
+                state = await build_graph(traced_call).ainvoke({})
+                with tracing.trace('save_recipes'):
+                    db = Store(user)
+                    await db.request('recipe_drafts', 'DELETE')
+                    session = (await db.request('recipe_sessions', 'POST', {
+                        'agent_run_id': run_id, 'attempts': state['attempts'],
+                        'free_operation_id': active_free_operation.get(),
+                        'status': 'complete' if state['final_recipes'] else 'no_match'}))[0]
+                    recipes = []
+                    for row in state['final_recipes']:
+                        saved = await traced_call('save_recipe', {'recipe': row['recipe'].model_dump(),
+                            'evaluation': row['evaluation'].model_dump(), 'session_id': session['id']})
+                        recipes.append(saved[0])
+                    if not recipes:
+                        await db.request('recipe_sessions', 'DELETE', item_id=session['id'])
     except TimeoutError:
         raise HTTPException(504, 'Recipe generation timed out. Please try again.')
-    await clean_user_images(user)
+    with tracing.trace('cleanup.old_images'):
+        await clean_user_images(user)
     return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
             'demo': settings().demo_mode,
             'message': ('' if len(recipes) == 5 else f'Only {len(recipes)} recipes passed your ingredient and preference checks.') if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}

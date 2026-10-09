@@ -139,3 +139,20 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 ## 模型与存储成本控制
 
 免费用户下载后注册登录，每账号总共 3 次免费识别或手动生成，菜谱及 AI 图片包含在该次额度里，无到期时间、不按天或按月恢复，重装 App 不重置；全站每天最多预留 $10，失败保留内部成本计数。每轮批量评估、输出 token 上限、有限瞬时错误重试、持久幂等请求、图片恢复和缩略图减少重复消费。`favorite_recipes` 只保存主动收藏的菜谱，不限制数量；`recipe_drafts` 仅保存当前一批临时生成结果，下一轮成功生成前清掉上一批，闲置超过 24 小时由后台清理。`recipes` 是供图片和额度逻辑使用的共享视图，不再是历史表。删除会清理缓存副本、空会话与云端图片。详细规则、估价局限及上线步骤见 [COST_CONTROLS.md](docs/COST_CONTROLS.md)。
+
+### Langfuse 生成追踪
+
+可选集成，未配置两个 key 时关闭，不影响菜谱生成。到 Langfuse 创建项目，在项目 Settings → API Keys 创建密钥，再在 Render 服务 Environment 填写：
+
+```dotenv
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+LANGFUSE_ENVIRONMENT=production
+```
+
+Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现有 `backend/.env`，不要放前端或提交密钥。部署并生成一次后，在 Langfuse Traces 找 `recipes.generate`，按 metadata 中的 `agent_run_id` 或 `request_id` 对照 Render 日志。记录每轮候选数、校验失败类别、评分、去重数、累计接受数、最终数量，以及 MCP、模型、保存和图片清理耗时。模型调用包含 Token 和按现有后端费率估算的 USD 成本（不是账单金额）。
+
+不上传完整提示词、库存、饮食偏好、照片、JWT 或用户 ID；异常只记录类型。使用手工 SDK spans，因为当前直接通过 OpenAI SDK 调模型，仅加 LangGraph callback 无法覆盖全部步骤。后台批量导出，应用关闭时在线程中 flush/shutdown，不在每次生成末尾等待导出。这里只追踪实际执行的生成流程（幂等缓存命中不重新创建），以及文本模型调用；独立生图请求尚未纳入。追踪 SDK 的启动、更新、结束失败均不阻断业务。
+
+SDK 接口参考：[Langfuse instrumentation](https://langfuse.com/docs/observability/sdk/instrumentation)。
