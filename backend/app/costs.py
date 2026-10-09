@@ -5,7 +5,6 @@ Failed calls retain reservations because provider work may already be billable.
 from contextvars import ContextVar
 from hashlib import sha256
 import json
-from uuid import uuid4
 from fastapi import HTTPException
 import anyio
 import httpx
@@ -29,7 +28,7 @@ async def admin(path, method='POST', data=None, params=None):
             response.raise_for_status()
             return response.json() if response.content else []
         except httpx.HTTPError:
-            raise HTTPException(503, 'AI accounting unavailable. No new AI work was started.') from None
+            raise HTTPException(503, 'AI accounting unavailable. Check History before retrying.') from None
 
 
 async def run_paid(user, kind, job_id, payload, action, included_operation=None):
@@ -69,21 +68,21 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
     operation_token = active_free_operation.set(result['free_operation_id'])
     params = {'user_id': f'eq.{user.user_id}', 'id': f'eq.{job_id}', 'status': 'eq.running'}
     try:
-        if kind == 'image':
-            await admin('ai_jobs', 'PATCH', {'subject_id': payload['recipe_id']}, params)
         value = await action()
         if isinstance(value, dict):
             value = {**value, 'free_operation_id': result['free_operation_id']}
         if not await admin('ai_jobs', 'PATCH', {'status': 'complete', 'result': value}, params):
             raise HTTPException(503, 'Operation expired. Check History before starting another.')
         return value
-    except BaseException:
+    except BaseException as exc:
         # Shield accounting from cancellation; never silently release paid reservations.
         with anyio.CancelScope(shield=True):
             try:
                 await admin('ai_jobs', 'PATCH', {'status': 'failed'}, params)
             except HTTPException:
                 pass  # Stale reservation fails closed on the next lookup.
+        if isinstance(exc, HTTPException):
+            exc.headers = {**(exc.headers or {}), 'X-AI-Job-State': 'failed'}
         raise
     finally:
         active_free_operation.reset(operation_token)

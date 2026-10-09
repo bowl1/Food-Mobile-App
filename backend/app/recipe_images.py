@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from hashlib import sha256
 from io import BytesIO
@@ -18,6 +19,7 @@ from .config import settings
 from .store import Store
 from .http_client import supabase_client
 from .costs import run_paid
+from .spool import trim_spool, spool_lock
 
 log = logging.getLogger('fridgechef')
 _slots = asyncio.Semaphore(2)
@@ -47,11 +49,24 @@ async def generate_image(recipe):
     return content
 
 
+def valid_image_path(user, path):
+    return (bool(path) and path.startswith(f'{user.user_id}/')
+            and bool(re.fullmatch(r'[A-Za-z0-9/_.-]+', path))
+            and all(part not in ('', '.', '..') for part in path.split('/')))
+
+
 async def cloud(user, path, body=None, content=None):
     cfg = settings()
     headers = {'apikey': cfg.supabase_anon_key, 'Authorization': f'Bearer {user.token}'}
     async with supabase_client() as client:
         if content is not None:
+            prefix = f'/storage/v1/object/{BUCKET}/'
+            if not path.startswith(prefix) or not valid_image_path(user, path[len(prefix):]):
+                raise HTTPException(403, 'Invalid image upload path.')
+            if not cfg.supabase_service_role_key:
+                raise HTTPException(503, 'Image cost controls are not configured.')
+            headers = {'apikey': cfg.supabase_service_role_key,
+                       'Authorization': 'Bearer ' + cfg.supabase_service_role_key}
             response = await client.post(f'{cfg.supabase_url}{path}', content=content,
                 headers={**headers, 'Content-Type': 'image/jpeg', 'x-upsert': 'true',
                          'Cache-Control': 'max-age=31536000'})
@@ -68,11 +83,13 @@ def spool_file(user, path):
 
 
 def save_spool(file, content):
-    temporary = file.with_suffix('.tmp')
-    with open(temporary, 'wb') as output:
-        os.chmod(temporary, 0o600)
-        output.write(content)
-    temporary.replace(file)
+    with spool_lock:
+        trim_spool(protect=file, incoming=len(content))
+        temporary = file.with_suffix('.tmp')
+        with open(temporary, 'wb') as output:
+            os.chmod(temporary, 0o600)
+            output.write(content)
+        temporary.replace(file)
 
 
 def thumbnail(content):
@@ -88,8 +105,17 @@ async def uploaded_image(user, path):
     async with supabase_client() as client:
         response = await client.get(f'{cfg.supabase_url}/storage/v1/object/authenticated/{BUCKET}/{path}',
             headers={'apikey': cfg.supabase_anon_key, 'Authorization': f'Bearer {user.token}'})
-        if response.status_code == 404:
-            return None
+        if response.status_code in (400, 404):
+            try:
+                error = response.json()
+            except ValueError:
+                error = {}
+            if (error.get('code') == 'NoSuchKey' or str(error.get('statusCode')) == '404'
+                    or error.get('message') in ('Object not found', 'The resource was not found')):
+                return None
+            # A bare 404 is a missing object; auth/permission/server errors fail closed.
+            if response.status_code == 404 and not error.get('code'):
+                return None
         response.raise_for_status()
         content = response.content
         if not content.startswith(b'\xff\xd8\xff') or len(content) > 5_242_880:
@@ -112,7 +138,7 @@ async def upload_with_retry(user, path, content):
 
 
 async def signed_image(user, path):
-    if not path or not path.startswith(f'{user.user_id}/'):
+    if not valid_image_path(user, path):
         raise HTTPException(404, 'Image not found.')
     async def sign(object_path):
         result = await cloud(user, f'/storage/v1/object/sign/{BUCKET}/{object_path}', {'expiresIn': 3600})
@@ -152,6 +178,8 @@ async def recipe_image(recipe_id, user, retry=False):
         return {'status': latest[0].get('image_status', 'generating') if latest else 'unavailable'}
     recipe = claimed[0]
     path = recipe['image_path']
+    if not valid_image_path(user, path):
+        raise HTTPException(403, 'Invalid image path.')
     file = spool_file(user, path)
     lease = recipe['image_lease_id']
     filters = {'image_lease_id': f'eq.{lease}'}
@@ -189,7 +217,7 @@ async def recipe_image(recipe_id, user, retry=False):
 
 
 async def remove_image(user, path):
-    if not path.startswith(f'{user.user_id}/'):
+    if not valid_image_path(user, path):
         return
     cfg = settings()
     try:

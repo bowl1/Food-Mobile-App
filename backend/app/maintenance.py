@@ -1,13 +1,12 @@
 """Bounded housekeeping on API startup and every six hours; no extra paid worker."""
 import asyncio
 import logging
-import time
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import httpx
 from .config import settings
 from .costs import admin
 from .http_client import supabase_client
+from .spool import trim_spool
 
 log = logging.getLogger('fridgechef')
 
@@ -25,6 +24,7 @@ async def clean_storage(user_id=None):
             # Validate even trusted queue entries before issuing an admin Storage deletion.
             if not path.startswith(str(row['user_id']) + '/') or '..' in path.split('/'):
                 log.error('invalid_cleanup_path owner=%s', row['user_id'])
+                await admin('image_cleanup_queue', 'DELETE', params={'path': f'eq.{path}'})
                 continue
             try:
                 # Do not delete an image that a retained recipe still references.
@@ -47,23 +47,13 @@ async def clean_storage(user_id=None):
                 log.warning('image_cleanup_deferred owner=%s error_type=%s', row['user_id'], type(exc).__name__)
 
 
-def clean_spool():
-    root = Path(settings().image_spool_dir)
-    if not root.exists():
-        return
-    cutoff = time.time() - 86400
-    for file in root.iterdir():
-        if file.suffix in ('.jpg', '.tmp') and file.is_file() and file.stat().st_mtime < cutoff:
-            file.unlink(missing_ok=True)
-
-
 async def run_once():
     if settings().demo_mode or not settings().supabase_service_role_key:
         return
     summary = await admin('rpc/prune_app_data', data={
         'batch_size': 100})
     await clean_storage()
-    await asyncio.to_thread(clean_spool)
+    await asyncio.to_thread(trim_spool)
     log.info('maintenance_complete removed=%s', summary)
 
 

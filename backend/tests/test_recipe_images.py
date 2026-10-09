@@ -199,3 +199,47 @@ def test_thumbnail_is_smaller_and_preserves_original():
     assert len(preview) < len(original)
     assert Image.open(BytesIO(preview)).size == (360,360)
     assert Image.open(BytesIO(original)).size == (1024,1024)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,body', [(404,{'code':'NoSuchKey'}),
+    (400,{'statusCode':'404','message':'Object not found'})])
+async def test_missing_storage_object_can_start_first_generation(monkeypatch,status,body):
+    import httpx
+    async def get(self,url,**kwargs):
+        return httpx.Response(status,json=body,request=httpx.Request('GET',url))
+    monkeypatch.setattr(httpx.AsyncClient,'get',get)
+    assert await images.uploaded_image(Identity('owner','jwt'),'owner/image.jpg') is None
+
+
+@pytest.mark.asyncio
+async def test_storage_permission_error_does_not_trigger_paid_regeneration(monkeypatch):
+    import httpx
+    async def get(self,url,**kwargs):
+        return httpx.Response(403,json={'code':'AccessDenied'},request=httpx.Request('GET',url))
+    monkeypatch.setattr(httpx.AsyncClient,'get',get)
+    with pytest.raises(httpx.HTTPStatusError):
+        await images.uploaded_image(Identity('owner','jwt'),'owner/image.jpg')
+
+
+@pytest.mark.asyncio
+async def test_upload_is_backend_only_and_rejects_other_owners(monkeypatch):
+    import httpx
+    monkeypatch.setenv('SUPABASE_SERVICE_ROLE_KEY','backend-secret')
+    settings.cache_clear()
+    calls=[]
+    async def post(self,url,**kwargs):
+        calls.append(kwargs)
+        return httpx.Response(200,json={},request=httpx.Request('POST',url))
+    monkeypatch.setattr(httpx.AsyncClient,'post',post)
+    user=Identity('owner','user-token')
+    try:
+        with pytest.raises(HTTPException):
+            await images.cloud(user,'/storage/v1/object/recipe-images/foreign/image.jpg',content=b'jpeg')
+        with pytest.raises(HTTPException):
+            await images.cloud(user,'/storage/v1/object/recipe-images/owner/../foreign/image.jpg',content=b'jpeg')
+        assert not calls
+        await images.cloud(user,'/storage/v1/object/recipe-images/owner/recipe/image.jpg',content=b'jpeg')
+        assert calls[0]['headers']['Authorization']=='Bearer backend-secret'
+    finally:
+        settings.cache_clear()

@@ -144,7 +144,7 @@ export function FridgeChef() {
     setTab('Recipes');
     await task('generate', async () => {
       setRecipes([]);
-      const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: foods, preferences: preferences.data });
+      const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: [...foods].sort((a, b) => a.id.localeCompare(b.id)), preferences: preferences.data });
       const historyKey = ['chef-history', session!.user.id];
       await queryClient.cancelQueries({ queryKey: historyKey });
       queryClient.setQueryData<Recipe[]>(historyKey, old => {

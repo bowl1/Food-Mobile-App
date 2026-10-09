@@ -20,7 +20,9 @@ do $$ begin
   raise exception 'owner recipe read blocked';
  end if;
 end $$;
+reset role;
 insert into storage.objects (bucket_id,name) values ('recipe-images','00000000-0000-0000-0000-000000000001/test.jpg');
+set role authenticated;
 set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
 do $$ begin
  if exists(select * from storage.objects) then raise exception 'cross-user storage read'; end if;
@@ -31,3 +33,14 @@ do $$ begin
  end;
 end $$;
 select 'cross-user recipe, session, image claim and Storage RLS checks passed' as result;
+
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+do $$ begin
+ if not exists(select 1 from storage.objects) then raise exception 'owner cannot read paid image'; end if;
+ begin
+   insert into storage.objects(bucket_id,name) values('recipe-images',auth.uid()::text||'/unbudgeted.jpg');
+   raise exception 'client can upload outside budget controls';
+ exception when insufficient_privilege then null; end;
+ update storage.objects set name=auth.uid()::text||'/overwrite.jpg';
+ if found then raise exception 'client can overwrite paid images'; end if;
+end $$;

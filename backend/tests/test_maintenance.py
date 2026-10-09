@@ -36,3 +36,23 @@ async def test_cleanup_retries_are_durable_and_does_not_delete_referenced_images
         assert any(call[1]=='DELETE' and 'retained' in str(call[3]) for call in calls)
     finally:
         settings.cache_clear()
+
+
+def test_recovery_spool_evicts_oldest_files_and_preserves_current_output(monkeypatch,tmp_path):
+    import os
+    import time
+    from backend.app.spool import trim_spool
+    root=tmp_path/'spool'
+    root.mkdir()
+    monkeypatch.setenv('IMAGE_SPOOL_DIR',str(root))
+    settings.cache_clear()
+    settings().image_spool_max_bytes=10
+    old=root/'old.jpg'; old.write_bytes(b'12345678')
+    os.utime(old,(time.time()-100,time.time()-100))
+    current=root/'current.jpg'; current.write_bytes(b'12345')
+    try:
+        trim_spool(protect=current)
+        assert not old.exists()
+        assert current.exists()
+    finally:
+        settings.cache_clear()

@@ -12,7 +12,8 @@ async def tools_for(identity):
     # Dedicated process per request. JWT is trusted transport context, never a model argument.
     root = Path(__file__).resolve().parents[2]
     parameters = StdioServerParameters(command=sys.executable, args=[str(root / 'mcp-server/server.py')],
-        env={**os.environ, 'PYTHONPATH': str(root), 'FRIDGECHEF_USER_TOKEN': identity.token}, cwd=str(root))
+        env={**os.environ, 'PYTHONPATH': str(root), 'FRIDGECHEF_USER_TOKEN': identity.token,
+             'SUPABASE_SERVICE_ROLE_KEY': ''}, cwd=str(root))
     async with stdio_client(parameters) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
