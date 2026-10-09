@@ -184,3 +184,67 @@ def test_delete_history_recipe_is_scoped_and_persistent():
         assert client.delete(url, headers=headers).status_code == 204
         assert client.get('/recipes/history', headers=headers).json() == []
         assert client.delete(url, headers=headers).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_evaluations_run_concurrently_with_limit_and_keep_ranking(monkeypatch):
+    from backend.app import llm
+    from backend.app.schemas import Candidates
+    settings().demo_mode = False
+    active = peak = 0
+    first_wave = asyncio.Event()
+    async def generate(inventory, preferences, errors):
+        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in range(5)])
+    async def evaluate(recipe, inventory, preferences):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == 3:
+            first_wave.set()
+        try:
+            await first_wave.wait()
+            await asyncio.sleep(0)
+            score = .80 + int(recipe.recipe_name[-1]) * .04
+            return Evaluation(inventory_utilization=score, dietary_fit=score, recipe_feasibility=score,
+                cooking_time_fit=score, instruction_quality=score, overall_score=score)
+        finally:
+            active -= 1
+    monkeypatch.setattr(llm, 'generate', generate)
+    monkeypatch.setattr(llm, 'evaluate', evaluate)
+    async def tools(name):
+        return INVENTORY if name == 'get_inventory' else Preferences().model_dump()
+    result = await asyncio.wait_for(build_graph(tools).ainvoke({}), timeout=3)
+    assert peak == 3
+    assert active == 0
+    assert result['attempts'] == 1
+    assert [r['recipe'].recipe_name for r in result['final_recipes']] == ['Meal 4', 'Meal 3', 'Meal 2']
+
+
+@pytest.mark.asyncio
+async def test_evaluation_failure_cancels_sibling_calls(monkeypatch):
+    from backend.app import llm
+    from backend.app.schemas import Candidates
+    settings().demo_mode = False
+    active = 0
+    first_wave = asyncio.Event()
+    async def generate(inventory, preferences, errors):
+        return Candidates(recipes=[sample_recipe(recipe_name=f'Meal {i}') for i in range(5)])
+    async def evaluate(recipe, inventory, preferences):
+        nonlocal active
+        active += 1
+        if active == 3:
+            first_wave.set()
+        try:
+            await first_wave.wait()
+            if recipe.recipe_name == 'Meal 0':
+                raise RuntimeError('Scoring unavailable')
+            await asyncio.Event().wait()
+        finally:
+            active -= 1
+    monkeypatch.setattr(llm, 'generate', generate)
+    monkeypatch.setattr(llm, 'evaluate', evaluate)
+    async def tools(name):
+        return INVENTORY if name == 'get_inventory' else Preferences().model_dump()
+    with pytest.raises(RuntimeError, match='Scoring unavailable'):
+        await asyncio.wait_for(build_graph(tools).ainvoke({}), timeout=3)
+    assert active == 0
