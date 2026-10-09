@@ -52,7 +52,8 @@ async def save_recipe(recipe: Recipe, evaluation: Evaluation, session_id: str) -
 
 @mcp.tool()
 async def get_recipe_history() -> str:
-    return json.dumps(await (await store()).request('recipes'))
+    rows = await (await store()).request('recipes', filters={'limit': '10'})
+    return json.dumps(rows[:10])
 
 
 if __name__ == '__main__':

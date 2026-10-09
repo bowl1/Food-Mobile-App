@@ -23,7 +23,7 @@ class Store:
         if item_id:
             params['id'] = f'eq.{item_id}'
         if table in ('recipes', 'recipe_sessions') and method == 'GET':
-            params.update(order='created_at.desc', limit='100')
+            params.update(order='created_at.desc', limit='10' if table == 'recipes' else '100')
         params.update(filters or {})
         payload = data
         if method in ('POST', 'PATCH'):
