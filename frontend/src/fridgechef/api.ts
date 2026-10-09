@@ -26,12 +26,21 @@ async function persist(session: Session | null) {
 
 async function authRequest(path: string, body: object) {
   if (!SUPABASE || !KEY) throw new Error('Configure Supabase in frontend/.env, or use the explicit demo mode.');
-  const response = await fetch(`${SUPABASE}/auth/v1/${path}`, {
-    method: 'POST', headers: { apikey: KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.msg ?? result.error_description ?? result.message ?? 'Authentication failed.');
-  return result;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${SUPABASE}/auth/v1/${path}`, {
+      method: 'POST', signal: controller.signal,
+      headers: { apikey: KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.msg ?? result.error_description ?? result.message ?? 'Authentication failed.');
+    return result;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('Authentication timed out. Check your connection and try again.');
+    if (error instanceof TypeError) throw new Error('Unable to connect to authentication. Check your internet connection and try again.');
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
 export async function signIn(email: string, password: string, register: boolean) {

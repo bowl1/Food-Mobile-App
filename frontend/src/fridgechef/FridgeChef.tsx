@@ -133,12 +133,15 @@ export function FridgeChef() {
       <Field label="Email address" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="you@example.com" />
       <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete={authRegister ? 'new-password' : 'current-password'} placeholder="At least 8 characters" />
       {!!error && <Text accessibilityRole="alert" style={s.errorText}>{error}</Text>}{!!notice && <Text style={s.muted}>{notice}</Text>}
-      <Button label={authRegister ? 'Create account' : 'Sign in'} busy={!!busy} disabled={!email || password.length < 8} onPress={() => task('auth', async () => {
+      <Button label={authRegister ? 'Create account' : 'Sign in'} busy={!!busy} onPress={() => task('auth', async () => {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) throw new Error('Enter a valid email address.');
+        if (!password) throw new Error('Enter your password.');
+        if (authRegister && password.length < 8) throw new Error('Use at least 8 characters for your password.');
         const next = await signIn(email, password, authRegister);
         if (next) { queryClient.clear(); setSession(next); if (authRegister) setTab('You'); }
-        else setNotice('Check your email to confirm your account, then sign in.');
+        else { setAuthRegister(false); setPassword(''); setNotice('Check your email (including spam) to confirm your account, then sign in.'); }
       })} />
-      <Pressable accessibilityRole="button" onPress={() => { setAuthRegister(!authRegister); setError(''); }}><Text style={s.link}>{authRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => { setAuthRegister(!authRegister); setError(''); setNotice(''); }}><Text style={s.link}>{authRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}</Text></Pressable>
     </View><Text style={s.footnote}>Only your ingredients. Always your kitchen.</Text>
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 
