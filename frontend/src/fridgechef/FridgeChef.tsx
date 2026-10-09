@@ -58,7 +58,7 @@ export function FridgeChef() {
   const enabled = !!session;
   const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
   const preferences = useQuery({ queryKey: ['chef-preferences', session?.user.id], queryFn: () => api<Preferences>('/preferences'), enabled });
-  const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history'), enabled: enabled && tab === 'History' });
+  const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history'), enabled, staleTime: 30000 });
   useEffect(() => { restoreSession().then(setSession).catch(e => setError(String(e))).finally(() => setBooting(false)); }, []);
   useEffect(() => { if (preferences.data) setPrefsDraft(preferences.data); }, [preferences.data]);
   const foods = inventory.data ?? [];
@@ -108,8 +108,15 @@ export function FridgeChef() {
     await task('generate', async () => {
       setRecipes([]);
       const data = await api<{ recipes: Recipe[]; attempts: number; message: string }>('/recipes/generate', 'POST');
+      const historyKey = ['chef-history', session!.user.id];
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      queryClient.setQueryData<Recipe[]>(historyKey, old => {
+        const saved = new Map((old ?? []).map(r => [r.id, r]));
+        data.recipes.forEach(r => saved.set(r.id, r));
+        return [...saved.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 100);
+      });
       setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
-      await queryClient.invalidateQueries({ queryKey: ['chef-history'] });
+      void queryClient.invalidateQueries({ queryKey: historyKey });
     });
   }
   const queryError = inventory.error ?? preferences.error ?? (tab === 'History' ? history.error : null);

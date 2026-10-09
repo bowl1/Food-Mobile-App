@@ -11,6 +11,7 @@ Expo + TypeScript 移动应用，识别食材后由用户确认入库，通过 F
 - 校验名称、单位、累计用量、默认调料白名单、饮食限制与烹饪时间。受限制饮食的未知食材保守拒绝；无需限制的未知食材仍可生成。
 - MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipe`、`get_recipe_history`。Agent 不调用库存修改工具。
 - Supabase 五张表、按用户 RLS、菜谱会话归属的复合外键。后端使用用户 JWT，不使用 service-role key。
+- 生成成功后将已保存记录立即合并到当前用户的 History 缓存，后台重新校验；登录后预加载历史。History API 直接通过用户 JWT 读取 Supabase，省去 MCP 子进程启动。
 - 推荐详情、最近 100 条历史、空结果与错误状态、超时、有限重试、请求/运行/模型/tool/评分日志。
 - Docker、离线评估数据集、自动化后端测试。
 

@@ -131,5 +131,5 @@ async def generate(request: Request, user: Identity = Depends(authenticated)):
 
 @app.get('/recipes/history')
 async def history(user: Identity = Depends(authenticated)):
-    async with tools_for(user) as call:
-        return await call('get_recipe_history')
+    # Read directly with the verified user's JWT; avoid starting an MCP process for a simple list.
+    return await Store(user).request('recipes')

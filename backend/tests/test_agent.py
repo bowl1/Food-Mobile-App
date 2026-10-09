@@ -149,3 +149,17 @@ async def test_evaluator_rejection_triggers_regeneration(monkeypatch):
     assert result['attempts'] == 2
     assert len(result['final_recipes']) == 3
     assert all(r['evaluation'].overall_score >= .75 for r in result['final_recipes'])
+
+
+def test_history_reads_saved_rows_without_starting_mcp(monkeypatch):
+    from backend.app import main
+    db = Store(Identity('00000000-0000-0000-0000-000000000001', 'local-demo'))
+    saved = asyncio.run(db.request('recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
+    def unexpected_mcp(*args, **kwargs):
+        raise AssertionError('History must not start an MCP subprocess')
+    monkeypatch.setattr(main, 'tools_for', unexpected_mcp)
+    with TestClient(main.app) as client:
+        assert client.get('/recipes/history').status_code == 401
+        response = client.get('/recipes/history', headers={'Authorization': 'Bearer local-demo'})
+        assert response.status_code == 200
+        assert response.json()[0]['id'] == saved['id']
