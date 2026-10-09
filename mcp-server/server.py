@@ -1,4 +1,5 @@
 """Stdio only: launched by the authenticated API, never exposed as an unauthenticated HTTP service."""
+import asyncio
 import json
 import os
 from mcp.server.fastmcp import FastMCP
@@ -7,10 +8,19 @@ from backend.app.store import Store
 from backend.app.schemas import InventoryInput, Recipe, Evaluation
 
 mcp = FastMCP('FridgeChef')
+# Each API request owns a dedicated subprocess with one immutable bearer token.
+_request_token = os.environ.get('FRIDGECHEF_USER_TOKEN', '')
+_request_store: Store | None = None
+_auth_lock = asyncio.Lock()
 
 
 async def store():
-    return Store(await authenticate_token(os.environ.get('FRIDGECHEF_USER_TOKEN', '')))
+    global _request_store
+    async with _auth_lock:
+        if _request_store is None:
+            # Cache only successful verification; concurrent tools share the result.
+            _request_store = Store(await authenticate_token(_request_token))
+        return _request_store
 
 
 @mcp.tool()
