@@ -41,6 +41,7 @@ grant all on storage.objects to authenticated;
 \if :{?legacy_only}
 \else
 \ir ../../../supabase/migrations/003_ai_cost_controls.sql
+\ir ../../../supabase/migrations/004_image_recovery.sql
 \ir ../../../supabase/migrations/007_once_only_free_trial.sql
 \ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
 \endif

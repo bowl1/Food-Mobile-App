@@ -15,7 +15,7 @@ Use canonical English food names and English instructions. Reason briefly explai
 
 async def structured(schema, messages, max_tokens=1800):
     cfg = settings()
-    if schema is not Recognition and sum(len(str(m['content'])) for m in messages) > 60000:
+    if schema is not Recognition and sum(len(str(m['content']).encode('utf-8')) for m in messages) > 60000:
         raise ValueError('Too much recipe context. Reduce your inventory.')
     client = AsyncOpenAI(api_key=cfg.openai_api_key, timeout=45, max_retries=0)
     try:

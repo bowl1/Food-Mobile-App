@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ''
     openai_model: str = 'gpt-6-luna'
     openai_image_model: str = 'gpt-image-2.5-flare'
+    image_spool_dir: str = '/tmp/fridgechef-image-spool'
     demo_mode: bool = False
     demo_db_path: str = 'backend/demo.sqlite3'
     cors_origins: str = 'http://localhost:8081,http://localhost:19006'

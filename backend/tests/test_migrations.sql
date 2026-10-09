@@ -6,6 +6,7 @@
 \ir ../../supabase/migrations/001_fridgechef.sql
 \ir ../../supabase/migrations/002_recipe_images.sql
 \ir ../../supabase/migrations/003_ai_cost_controls.sql
+\ir ../../supabase/migrations/004_image_recovery.sql
 \ir ../../supabase/migrations/007_once_only_free_trial.sql
 \ir ../../supabase/migrations/009_three_lifetime_free_uses.sql
 do $$ begin
