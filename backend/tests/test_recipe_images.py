@@ -123,3 +123,20 @@ async def test_image_prompt_uses_recipe_and_returns_jpeg(monkeypatch):
     assert captured['size'] == '1024x1024'
     assert captured['output_format'] == 'jpeg'
     assert 'Spinach eggs' in captured['prompt'] and 'Cook eggs.' in captured['prompt']
+
+
+@pytest.mark.asyncio
+async def test_image_cleanup_uses_owner_jwt_and_rejects_foreign_paths(monkeypatch):
+    import httpx
+    requests = []
+    async def request(self, method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        return httpx.Response(200, json=[], request=httpx.Request(method, url))
+    monkeypatch.setattr(httpx.AsyncClient, 'request', request)
+    user = Identity('owner', 'owner-token')
+    await images.remove_image(user, 'other/recipe/image.jpg')
+    assert requests == []
+    await images.remove_image(user, 'owner/recipe/image.jpg')
+    assert requests[0][0] == 'DELETE'
+    assert requests[0][2]['json'] == {'prefixes': ['owner/recipe/image.jpg']}
+    assert requests[0][2]['headers']['Authorization'] == 'Bearer owner-token'

@@ -139,3 +139,13 @@ async def history(user: Identity = Depends(authenticated)):
 async def image_for_recipe(recipe_id: UUID, retry: bool = False, user: Identity = Depends(authenticated)):
     from .recipe_images import recipe_image
     return await recipe_image(recipe_id, user, retry)
+
+
+@app.delete('/recipes/{recipe_id}', status_code=204)
+async def delete_recipe(recipe_id: UUID, user: Identity = Depends(authenticated)):
+    rows = await Store(user).request('recipes', 'DELETE', item_id=str(recipe_id))
+    if not rows:
+        raise HTTPException(404, 'Recipe not found.')
+    if not settings().demo_mode and rows[0].get('image_path'):
+        from .recipe_images import remove_image
+        await remove_image(user, rows[0]['image_path'])

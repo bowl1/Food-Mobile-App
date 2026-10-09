@@ -89,6 +89,7 @@ evals/                   固定案例和评估 runner
 | PUT /preferences | 保存偏好 |
 | POST /recipes/generate | 生成、校验、评分、排序、保存 |
 | POST /recipes/{id}/image | 生成或读取已保存图片的 1 小时签名链接；`?retry=true` 手动重试失败任务 |
+| DELETE /recipes/{id} | 删除本人菜谱，尝试清理对应图片 |
 | GET /recipes/history | 最近 100 条已保存推荐 |
 
 MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可信 token；MCP 再次校验。工具 schema 不接收 user_id；PostgREST 同时用用户 JWT 和用户过滤条件，数据库 RLS 最终强制隔离。stdio server 应仅由可信 API 进程启动，不直接暴露公网。MCP 失败时请求失败，不编造库存。

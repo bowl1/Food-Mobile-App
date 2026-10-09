@@ -163,3 +163,24 @@ def test_history_reads_saved_rows_without_starting_mcp(monkeypatch):
         response = client.get('/recipes/history', headers={'Authorization': 'Bearer local-demo'})
         assert response.status_code == 200
         assert response.json()[0]['id'] == saved['id']
+
+
+def test_delete_history_recipe_is_scoped_and_persistent():
+    from backend.app.main import app
+    from backend.app.auth import authenticated
+    owner = Identity('00000000-0000-0000-0000-000000000001', 'local-demo')
+    other = Identity('00000000-0000-0000-0000-000000000002', 'local-demo')
+    saved = asyncio.run(Store(owner).request('recipes', 'POST', {'recipe_name': 'Saved meal'}))[0]
+    with TestClient(app) as client:
+        url = f"/recipes/{saved['id']}"
+        assert client.delete(url).status_code == 401
+        app.dependency_overrides[authenticated] = lambda: other
+        try:
+            assert client.delete(url).status_code == 404
+        finally:
+            app.dependency_overrides.pop(authenticated, None)
+        headers = {'Authorization': 'Bearer local-demo'}
+        assert len(client.get('/recipes/history', headers=headers).json()) == 1
+        assert client.delete(url, headers=headers).status_code == 204
+        assert client.get('/recipes/history', headers=headers).json() == []
+        assert client.delete(url, headers=headers).status_code == 404

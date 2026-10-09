@@ -56,6 +56,7 @@ export function FridgeChef() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [attempts, setAttempts] = useState(0);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [deleteRecipe, setDeleteRecipe] = useState<Recipe | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Food | null>(null);
   const enabled = !!session;
   const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
@@ -176,7 +177,7 @@ export function FridgeChef() {
       </>}
       {tab === 'History' && <>
         <Text style={s.eyebrow}>YOUR COOKING JOURNAL</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Your latest 100 recommendations, all in one place.{ '\n' }Past recipes reflect the inventory at generation time.</Text>
-        {history.isLoading ? <ActivityIndicator color={green} /> : history.data?.length ? history.data.map((r, i) => <RecipeCard key={r.id} recipe={r} index={i} onPress={() => setRecipe(r)} history />) : <Empty icon="book-outline" title="A fresh page" text="Your validated recipes will be saved here automatically when you generate them." />}
+        {history.isLoading ? <ActivityIndicator color={green} /> : history.data?.length ? history.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} history /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { setError(''); setDeleteRecipe(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" /><Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text></Pressable></View>) : <Empty icon="book-outline" title="A fresh page" text="Your validated recipes will be saved here automatically when you generate them." />}
       </>}
       {tab === 'You' && <>
         <Text style={s.eyebrow}>A KITCHEN THAT KNOWS YOU</Text><Text style={s.title}>Your taste.{ '\n' }Your way.</Text><Text style={s.muted}>Tell us what works for you. We’ll keep it in mind for every recipe.</Text>
@@ -202,6 +203,18 @@ export function FridgeChef() {
     </ScrollView></SafeAreaView></Modal>
     <Modal visible={recipe !== null} animationType="slide" onRequestClose={() => setRecipe(null)}><SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.content}>{recipe && <><Pressable accessibilityRole="button" onPress={() => setRecipe(null)}><Text style={s.link}>← Back to recipes</Text></Pressable><RecipePhoto recipe={recipe} detail /><Text style={s.eyebrow}>FROM YOUR KITCHEN</Text><Text style={s.title}>{recipe.recipe_name}</Text><View style={s.chips}><View style={s.chip}><Icon name="time-outline" size={15} /><Text style={s.chipText}>{recipe.cooking_time_minutes} min</Text></View><View style={s.chip}><Icon name="sparkles-outline" size={15} /><Text style={s.chipText}>{Math.round(recipe.evaluation_score * 100)}% quality score{DEMO ? ' · demo' : ''}</Text></View></View><Text style={s.muted}>{recipe.reason}</Text>
       <Text style={s.sectionTitle}>What you’ll use</Text><View style={s.card}>{recipe.ingredients.map((item, i) => <View key={i} style={[s.ingredientLine, i > 0 && s.divider]}><Text style={[s.foodName, { flex: 1 }]}>{item.name}</Text><Text style={s.muted}>{item.quantity} {item.unit}</Text></View>)}</View><Text style={s.small}>Pantry basics: {recipe.pantry_staples.join(', ') || 'none'}</Text><Text style={s.sectionTitle}>Let’s make it</Text>{recipe.steps.map((step, i) => <View key={i} style={[s.row, { alignItems: 'flex-start' }]}><View style={s.step}><Text style={s.chipText}>{i + 1}</Text></View><Text style={[s.muted, { flex: 1, color: '#344236' }]}>{step}</Text></View>)}<View style={s.notice}><Icon name="checkmark-circle-outline" /><Text style={[s.small, { flex: 1 }]}>Passed inventory and dietary checks at generation time. Historical recipes may include ingredients you’ve since used.</Text></View><Button label="Back to my kitchen" onPress={() => { setRecipe(null); setTab('Kitchen'); }} /></>}</ScrollView></SafeAreaView></Modal>
+    <Modal visible={!!deleteRecipe} transparent animationType="fade" onRequestClose={() => !busy && setDeleteRecipe(null)}><View style={s.overlay}><View style={s.sheet}><Text style={s.sectionTitle}>Delete {deleteRecipe?.recipe_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This recipe will be permanently removed from your history.</Text>{!!error && <Text accessibilityRole="alert" style={s.errorText}>{error}</Text>}<Button label="Delete recipe" busy={busy === 'delete-recipe'} disabled={!!busy} onPress={() => task('delete-recipe', async () => {
+      const id = deleteRecipe!.id;
+      await api(`/recipes/${id}`, 'DELETE');
+      const historyKey = ['chef-history', session!.user.id];
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      queryClient.setQueryData<Recipe[]>(historyKey, old => (old ?? []).filter(r => r.id !== id));
+      queryClient.removeQueries({ queryKey: ['chef-recipe-image', id] });
+      setRecipes(old => old.filter(r => r.id !== id));
+      setRecipe(old => old?.id === id ? null : old);
+      setDeleteRecipe(null); setNotice('Recipe deleted.');
+      void queryClient.invalidateQueries({ queryKey: historyKey });
+    })} /><Button label="Keep recipe" secondary disabled={!!busy} onPress={() => { setDeleteRecipe(null); setError(''); }} /></View></View></Modal>
     <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}><View style={s.overlay}><View style={s.sheet}><Text style={s.sectionTitle}>Remove {confirmDelete?.food_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This ingredient will be removed from your inventory.</Text><Button label="Remove ingredient" busy={busy === 'delete'} onPress={() => task('delete', async () => { await api(`/inventory/${confirmDelete!.id}`, 'DELETE'); await refreshInventory(); setConfirmDelete(null); })} /><Button label="Keep ingredient" secondary disabled={!!busy} onPress={() => setConfirmDelete(null)} /></View></View></Modal>
   </SafeAreaView>;
 }

@@ -92,6 +92,7 @@ async def recipe_image(recipe_id, user, retry=False):
             updated = await db.request('recipes', 'PATCH', {'image_status': 'ready'}, str(recipe_id),
                 filters={'image_path': f'eq.{path}'})
             if not updated:
+                await remove_image(user, path)
                 return {'status': 'generating'}
     except Exception as exc:
         log.warning('recipe_image_failed recipe_id=%s error_type=%s', recipe_id, type(exc).__name__)
@@ -99,3 +100,18 @@ async def recipe_image(recipe_id, user, retry=False):
             filters={'image_path': f'eq.{path}'})
         return {'status': 'failed'}
     return await signed_image(user, path)
+
+
+async def remove_image(user, path):
+    if not path.startswith(f'{user.user_id}/'):
+        return
+    cfg = settings()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.request('DELETE', f'{cfg.supabase_url}/storage/v1/object/{BUCKET}',
+                json={'prefixes': [path]}, headers={'apikey': cfg.supabase_anon_key,
+                    'Authorization': f'Bearer {user.token}'})
+            response.raise_for_status()
+    except httpx.HTTPError:
+        # The recipe deletion succeeds even if storage is temporarily unavailable.
+        log.warning('recipe_image_cleanup_failed user_id=%s', user.user_id)
