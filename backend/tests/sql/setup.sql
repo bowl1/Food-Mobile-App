@@ -7,6 +7,8 @@ do $$ begin if not exists (
     ) then create role authenticated;
 end if;
 end $$;
+do $$ begin if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; end $$;
+grant usage on schema public to service_role;
 create schema auth;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$
@@ -26,7 +28,8 @@ create table storage.buckets (
 create table storage.objects (
     id uuid default gen_random_uuid(),
     bucket_id text,
-    name text
+    name text,
+    created_at timestamptz not null default now()
 );
 alter table storage.objects enable row level security;
 create function storage.foldername(text) returns text [] language sql immutable as $$
@@ -35,6 +38,12 @@ grant usage on schema storage to authenticated;
 grant all on storage.objects to authenticated;
 \ir ../../../supabase/migrations/001_fridgechef.sql
 \ir ../../../supabase/migrations/002_recipe_images.sql
+\if :{?legacy_only}
+\else
+\ir ../../../supabase/migrations/003_ai_cost_controls.sql
+\ir ../../../supabase/migrations/007_once_only_free_trial.sql
+\ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
+\endif
 insert into auth.users
 values ('00000000-0000-0000-0000-000000000001'),
     ('00000000-0000-0000-0000-000000000002');

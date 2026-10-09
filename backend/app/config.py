@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +7,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='backend/.env', extra='ignore')
     supabase_url: str = ''
     supabase_anon_key: str = ''
+    supabase_service_role_key: str = ''
+    free_trial_uses: int = Field(default=3, ge=1)
+    ai_text_input_usd_per_million: float = 0.10
+    ai_text_output_usd_per_million: float = 0.50
+    ai_image_text_usd_per_million: float = 5.0
+    ai_image_output_usd_per_million: float = 30.0
+    ai_daily_budget_usd: float = 10.0
+    ai_generate_reserve_usd: float = 0.10
+    ai_recognize_reserve_usd: float = 0.02
+    ai_image_reserve_usd: float = 0.05
     openai_api_key: str = ''
     openai_model: str = 'gpt-6-luna'
     openai_image_model: str = 'gpt-image-2.5-flare'

@@ -4,7 +4,7 @@ import base64
 import logging
 import time
 from uuid import uuid4, UUID
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .auth import authenticated, Identity
@@ -14,6 +14,7 @@ from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
 from .mcp_client import tools_for
 from .graph import build_graph
 from . import llm
+from .costs import run_paid, active_free_operation, trial_status
 from .http_client import new_client, use_client
 
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +33,7 @@ async def lifespan(app):
 
 app = FastAPI(title='FridgeChef API', version='1.0.0', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins.split(','),
-                   allow_methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
+                   expose_headers=['X-AI-Job-State'], allow_methods=['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], allow_headers=['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Free-Operation'])
 
 
 @app.middleware('http')
@@ -99,7 +100,8 @@ async def save_preferences(prefs: Preferences, user: Identity = Depends(authenti
 
 
 @app.post('/vision/recognize')
-async def recognize(image: ImageInput, user: Identity = Depends(authenticated)):
+async def recognize(image: ImageInput, user: Identity = Depends(authenticated),
+                    idempotency_key: UUID | None = Header(default=None)):
     try:
         content = base64.b64decode(image.image_base64, validate=True)
     except ValueError:
@@ -115,11 +117,22 @@ async def recognize(image: ImageInput, user: Identity = Depends(authenticated)):
                 'demo': True}
     if not settings().openai_api_key:
         raise HTTPException(503, 'AI service is not configured.')
-    return (await llm.recognize(image)).model_dump()
+    async def work():
+        return (await llm.recognize(image)).model_dump()
+    return await run_paid(user, 'recognize', idempotency_key, image.model_dump(), work)
 
 
 @app.post('/recipes/generate')
-async def generate(request: Request, user: Identity = Depends(authenticated)):
+async def generate(request: Request, user: Identity = Depends(authenticated),
+                   idempotency_key: UUID | None = Header(default=None),
+                   x_free_operation: UUID | None = Header(default=None)):
+    if not settings().demo_mode and not settings().openai_api_key:
+        raise HTTPException(503, 'AI service is not configured.')
+    return await run_paid(user, 'generate', idempotency_key, {},
+                          lambda: generate_recipes(request, user), included_operation=x_free_operation)
+
+
+async def generate_recipes(request, user):
     if not settings().demo_mode and not settings().openai_api_key:
         raise HTTPException(503, 'AI service is not configured.')
     run_id = str(uuid4())
@@ -132,6 +145,7 @@ async def generate(request: Request, user: Identity = Depends(authenticated)):
                 db = Store(user)
                 session = (await db.request('recipe_sessions', 'POST', {
                     'agent_run_id': run_id, 'attempts': state['attempts'],
+                    'free_operation_id': active_free_operation.get(),
                     'status': 'complete' if state['final_recipes'] else 'no_match'}))[0]
                 recipes = []
                 for row in state['final_recipes']:
@@ -143,6 +157,11 @@ async def generate(request: Request, user: Identity = Depends(authenticated)):
     return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
             'demo': settings().demo_mode,
             'message': '' if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
+
+
+@app.get('/ai/trial')
+async def free_trial(user: Identity = Depends(authenticated)):
+    return await trial_status(user)
 
 
 @app.get('/recipes/history')

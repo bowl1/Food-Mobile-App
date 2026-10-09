@@ -1,3 +1,4 @@
+import { paidGenerate, FreeTrial } from './api';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -82,6 +83,7 @@ export function FridgeChef() {
   const [deleteRecipe, setDeleteRecipe] = useState<Recipe | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Food | null>(null);
   const enabled = !!session;
+  const freeTrial = useQuery({ queryKey: ['chef-free-trial', session?.user.id], queryFn: () => api<FreeTrial>('/ai/trial'), enabled: enabled && !DEMO, staleTime: 30000 });
   const inventory = useQuery({ queryKey: ['chef-inventory', session?.user.id], queryFn: () => api<Food[]>('/inventory'), enabled });
   const preferences = useQuery({ queryKey: ['chef-preferences', session?.user.id], queryFn: () => api<Preferences>('/preferences'), enabled });
   const history = useQuery({ queryKey: ['chef-history', session?.user.id], queryFn: () => api<Recipe[]>('/recipes/history').then(latestHistory), enabled, staleTime: 30000 });
@@ -101,7 +103,7 @@ export function FridgeChef() {
   async function task(name: string, action: () => Promise<void>) {
     setBusy(name); setError(''); setNotice('');
     try { await action(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.'); }
-    finally { setBusy(''); }
+    finally { setBusy(''); if (name === 'photo' || name === 'generate') void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] }); }
   }
   async function refreshInventory() { await queryClient.invalidateQueries({ queryKey: ['chef-inventory'] }); }
   function checkFood(item: DraftFood) {
@@ -121,6 +123,7 @@ export function FridgeChef() {
       if (!image.base64) throw new Error('Could not read this photo. Try another image.');
       setPhoto(image.uri);
       const detected = await api<{ foods: Food[] }>('/vision/recognize', 'POST', { image_base64: image.base64, mime_type: 'image/jpeg' });
+      void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] });
       setDrafts(detected.foods.map(f => ({ ...f, source: 'image_recognition' })));
     });
   }
@@ -141,7 +144,7 @@ export function FridgeChef() {
     setTab('Recipes');
     await task('generate', async () => {
       setRecipes([]);
-      const data = await api<{ recipes: Recipe[]; attempts: number; message: string }>('/recipes/generate', 'POST');
+      const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: foods, preferences: preferences.data });
       const historyKey = ['chef-history', session!.user.id];
       await queryClient.cancelQueries({ queryKey: historyKey });
       queryClient.setQueryData<Recipe[]>(historyKey, old => {
@@ -149,6 +152,7 @@ export function FridgeChef() {
         data.recipes.forEach(r => saved.set(r.id, r));
         return latestHistory([...saved.values()]);
       });
+      void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] });
       setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
       void queryClient.invalidateQueries({ queryKey: historyKey });
     });
@@ -182,6 +186,7 @@ export function FridgeChef() {
     {DEMO && <View style={s.demo}><Icon name="flask-outline" size={15} /><Text style={s.demoText}>LOCAL DEMO · sample recognition & recipe scores</Text></View>}
     <ScrollView ref={contentScroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       {(!!error || !!queryError) && <View accessibilityRole="alert" style={s.error}><Text style={s.errorText}>{error || (queryError as Error).message}</Text><Pressable onPress={() => { setError(''); inventory.refetch(); preferences.refetch(); if (tab === 'History') history.refetch(); }}><Text style={s.link}>Try again</Text></Pressable></View>}
+      {!DEMO && freeTrial.data && <View style={s.notice}><Icon name="sparkles-outline" size={20} /><View style={{ flex: 1 }}><Text style={s.foodName}>{freeTrial.data.exhausted ? 'You’ve used all your free tries' : `${freeTrial.data.remaining_uses} of ${freeTrial.data.total_uses} free tries remaining`}</Text><Text style={s.small}>Recipes and AI dish images included. No expiry. Free tries do not reset.</Text></View></View>}
       {!!notice && <View style={s.notice}><Icon name="information-circle-outline" size={20} /><Text style={[s.muted, { flex: 1 }]}>{notice}</Text></View>}
       {tab === 'Kitchen' && <>
         <Text style={s.eyebrow}>LESS WASTE. MORE GOOD FOOD.</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
