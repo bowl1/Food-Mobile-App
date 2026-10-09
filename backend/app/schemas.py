@@ -59,6 +59,15 @@ class Evaluation(StrictModel):
     overall_score: float = Field(ge=0, le=1)
 
 
+class IndexedEvaluation(StrictModel):
+    candidate_index: int = Field(ge=0, le=4)
+    evaluation: Evaluation
+
+
+class Evaluations(StrictModel):
+    evaluations: list[IndexedEvaluation] = Field(max_length=5)
+
+
 class DetectedFood(InventoryInput):
     confidence: float = Field(ge=0, le=1)
 

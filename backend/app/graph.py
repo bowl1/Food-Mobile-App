@@ -46,22 +46,10 @@ def build_graph(call_tool):
                 continue
             valid.append(recipe)
 
-        slots = asyncio.Semaphore(3)
-        async def evaluate(recipe):
-            async with slots:
-                return demo.score(recipe, state['inventory']) if settings().demo_mode else await llm.evaluate(
-                    recipe, state['inventory'], state['preferences'])
-
-        tasks = [asyncio.create_task(evaluate(recipe)) for recipe in valid]
-        try:
-            evaluations = await asyncio.gather(*tasks)
-        except BaseException:
-            # A failed request or deadline must not leave sibling model calls running.
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
-        # gather preserves input order, keeping deduplication and ties deterministic.
+        evaluations = ([demo.score(recipe, state['inventory']) for recipe in valid]
+                       if settings().demo_mode else
+                       await llm.evaluate_many(valid, state['inventory'], state['preferences']) if valid else [])
+        # Indexed batch results preserve candidate order for deterministic ranking.
         for recipe, evaluation in zip(valid, evaluations):
             log.info('evaluation overall_score=%s attempt=%s', evaluation.overall_score, state['attempts'])
             if evaluation.overall_score < 0.75:
