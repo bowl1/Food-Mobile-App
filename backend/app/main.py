@@ -5,7 +5,7 @@ import base64
 import logging
 import time
 from uuid import uuid4, UUID
-from fastapi import FastAPI, Depends, HTTPException, Request, Header
+from fastapi import FastAPI, Depends, HTTPException, Request, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .auth import authenticated, Identity
@@ -15,7 +15,7 @@ from .schemas import InventoryInput, InventoryPatch, Preferences, ImageInput
 from .mcp_client import tools_for
 from .graph import build_graph
 from . import llm, tracing, monitoring
-from .costs import run_paid, active_free_operation, trial_status
+from .costs import run_paid, active_free_operation, active_job, admin, trial_status
 from .http_client import new_client, use_client
 from .maintenance import maintenance_loop, clean_user_images
 
@@ -141,13 +141,15 @@ async def recognize(image: ImageInput, user: Identity = Depends(authenticated),
 
 
 @app.post('/recipes/generate')
-async def generate(request: Request, user: Identity = Depends(authenticated),
+async def generate(request: Request, background_tasks: BackgroundTasks, user: Identity = Depends(authenticated),
                    idempotency_key: UUID | None = Header(default=None),
                    x_free_operation: UUID | None = Header(default=None)):
     if not settings().demo_mode and not settings().openai_api_key:
         raise HTTPException(503, 'AI service is not configured.')
-    return await run_paid(user, 'generate', idempotency_key, {},
-                          lambda: generate_recipes(request, user), included_operation=x_free_operation)
+    result = await run_paid(user, 'generate', idempotency_key, {},
+                            lambda: generate_recipes(request, user), included_operation=x_free_operation)
+    background_tasks.add_task(clean_user_images, user)
+    return result
 
 
 async def generate_recipes(request, user):
@@ -177,28 +179,64 @@ async def generate_recipe_batch(user, run_id):
                 async def traced_call(name, arguments=None):
                     with tracing.trace('mcp.' + name):
                         return await call(name, arguments) if arguments is not None else await call(name)
-                state = await build_graph(traced_call).ainvoke({})
-                with tracing.trace('save_recipes'):
-                    db = Store(user)
+                db = Store(user)
+                session = None
+                saved_by_name = {}
+
+                async def publish(accepted, attempts):
+                    nonlocal session
+                    with tracing.trace('save_recipes'):
+                        if session is None:
+                            await db.request('recipe_drafts', 'DELETE')
+                            session = (await db.request('recipe_sessions', 'POST', {
+                                'agent_run_id': run_id, 'attempts': attempts,
+                                'free_operation_id': active_free_operation.get(), 'status': 'complete'}))[0]
+                        new_rows = [row for row in accepted
+                                    if row['recipe'].recipe_name.casefold() not in saved_by_name]
+                        if new_rows:
+                            saved = await traced_call('save_recipes', {'recipes': [
+                                {'recipe': row['recipe'].model_dump(), 'evaluation': row['evaluation'].model_dump()}
+                                for row in new_rows], 'session_id': session['id']})
+                            saved_by_name.update({row['recipe_name'].casefold(): row for row in saved})
+                    job = active_job.get()
+                    if job:
+                        # Owner-filtered durable progress; completion replaces this snapshot.
+                        try:
+                            await admin('ai_jobs', 'PATCH', {'result': {
+                                'recipes': [saved_by_name[row['recipe'].recipe_name.casefold()] for row in accepted], 'attempts': attempts,
+                                'agent_run_id': run_id}}, {'user_id': f'eq.{user.user_id}',
+                                'id': f'eq.{job[1]}', 'status': 'eq.running'})
+                        except HTTPException:
+                            log.warning('generation_progress_persist_failed agent_run_id=%s', run_id)
+
+                state = await build_graph(traced_call, publish).ainvoke({})
+                recipes = [saved_by_name[row['recipe'].recipe_name.casefold()] for row in state['final_recipes']]
+                retained_ids = {row['id'] for row in recipes}
+                for row in saved_by_name.values():
+                    if row['id'] not in retained_ids:
+                        await db.request('recipe_drafts', 'DELETE', item_id=row['id'])
+                if session:
+                    await db.request('recipe_sessions', 'PATCH', {
+                        'attempts': state['attempts'], 'status': 'complete'}, item_id=session['id'])
+                else:
                     await db.request('recipe_drafts', 'DELETE')
-                    session = (await db.request('recipe_sessions', 'POST', {
-                        'agent_run_id': run_id, 'attempts': state['attempts'],
-                        'free_operation_id': active_free_operation.get(),
-                        'status': 'complete' if state['final_recipes'] else 'no_match'}))[0]
-                    recipes = []
-                    for row in state['final_recipes']:
-                        saved = await traced_call('save_recipe', {'recipe': row['recipe'].model_dump(),
-                            'evaluation': row['evaluation'].model_dump(), 'session_id': session['id']})
-                        recipes.append(saved[0])
-                    if not recipes:
-                        await db.request('recipe_sessions', 'DELETE', item_id=session['id'])
     except TimeoutError:
         raise HTTPException(504, 'Recipe generation timed out. Please try again.')
-    with tracing.trace('cleanup.old_images'):
-        await clean_user_images(user)
     return {'recipes': recipes, 'agent_run_id': run_id, 'attempts': state['attempts'],
             'demo': settings().demo_mode,
             'message': ('' if len(recipes) == 5 else f'Only {len(recipes)} recipes passed your ingredient and preference checks.') if recipes else 'Your confirmed inventory cannot currently produce a validated recipe for these preferences. Edit your inventory or preferences and try again.'}
+
+
+@app.get('/recipes/generation/{job_id}')
+async def generation_progress(job_id: UUID, user: Identity = Depends(authenticated)):
+    rows = await admin('ai_jobs', 'GET', params={'id': f'eq.{job_id}',
+        'user_id': f'eq.{user.user_id}', 'kind': 'eq.generate', 'select': 'status,result'})
+    if not rows:
+        raise HTTPException(404, 'Generation not found.')
+    row = rows[0]
+    result = row.get('result') or {}
+    return {'status': row['status'], 'recipes': result.get('recipes', []),
+            'attempts': result.get('attempts', 0), 'message': result.get('message', '')}
 
 
 @app.get('/ai/trial')
@@ -226,11 +264,11 @@ async def image_for_recipe(recipe_id: UUID, retry: bool = False, user: Identity 
 
 
 @app.delete('/recipes/favorites/{recipe_id}', status_code=204)
-async def delete_recipe(recipe_id: UUID, user: Identity = Depends(authenticated)):
+async def delete_recipe(recipe_id: UUID, background_tasks: BackgroundTasks, user: Identity = Depends(authenticated)):
     rows = await Store(user).request('favorite_recipes', 'DELETE', item_id=str(recipe_id))
     if not rows:
         raise HTTPException(404, 'Recipe not found.')
     if not settings().demo_mode and rows[0].get('image_path'):
         from .recipe_images import remove_image
-        await remove_image(user, rows[0]['image_path'])
-    await clean_user_images(user)
+        background_tasks.add_task(remove_image, user, rows[0]['image_path'])
+    background_tasks.add_task(clean_user_images, user)

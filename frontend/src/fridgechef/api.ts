@@ -10,7 +10,7 @@ const STORAGE_KEY = 'fridgechef.session.v1';
 export type Session = { access_token: string; refresh_token: string; expires_at: number; user: { id: string; email?: string } };
 export type Food = { id: string; food_name: string; quantity: number; unit: string; source: 'manual' | 'image_recognition'; confidence?: number };
 export type Preferences = { vegetarian: boolean; vegan: boolean; keto: boolean; gluten_free: boolean; dairy_free: boolean; high_protein: boolean; max_cooking_time: number };
-export type Recipe = { image_status?: 'none' | 'pending' | 'generating' | 'ready' | 'failed'; id: string; recipe_name: string; ingredients: { name: string; quantity: number; unit: string }[]; pantry_staples: string[]; cooking_time_minutes: number; dietary_tags: string[]; steps: string[]; reason: string; evaluation_score: number; evaluation: Record<string, number>; created_at: string };
+export type Recipe = { preview_only?: boolean; image_status?: 'none' | 'pending' | 'generating' | 'ready' | 'failed'; id: string; recipe_name: string; ingredients: { name: string; quantity: number; unit: string }[]; pantry_staples: string[]; cooking_time_minutes: number; dietary_tags: string[]; steps: string[]; reason: string; evaluation_score: number; evaluation: Record<string, number>; created_at: string };
 export const defaults: Preferences = { vegetarian: false, vegan: false, keto: false, gluten_free: false, dairy_free: false, high_protein: false, max_cooking_time: 30 };
 let current: Session | null = null;
 let refreshing: Promise<Session> | null = null;
@@ -129,7 +129,9 @@ function requestUuid() {
   });
 }
 
-export async function paidGenerate<T>(context: unknown): Promise<T> {
+export type GenerationProgress = { status: 'running' | 'complete' | 'failed'; recipes: Recipe[]; attempts: number; message: string };
+
+export async function paidGenerate<T>(context: unknown, onProgress?: (progress: GenerationProgress) => void): Promise<T> {
   if (DEMO) return api<T>('/recipes/generate', 'POST');
   const owner = current?.user.id;
   if (!owner) throw new Error('Please sign in.');
@@ -142,6 +144,17 @@ export async function paidGenerate<T>(context: unknown): Promise<T> {
     pending = { id: requestUuid(), context: fingerprint, operation: queue[0] };
     await AsyncStorage.setItem(key, JSON.stringify(pending));
   }
+  let stopped = false;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  const poll = async () => {
+    if (stopped || !onProgress) return;
+    try {
+      const progress = await api<GenerationProgress>(`/recipes/generation/${pending!.id}`);
+      if (!stopped && progress.recipes.length > 0) onProgress(progress);
+    } catch { /* Progress is optional; the original POST remains authoritative. */ }
+    if (!stopped) pollTimer = setTimeout(() => { void poll(); }, 2500);
+  };
+  if (onProgress) pollTimer = setTimeout(() => { void poll(); }, 2500);
   try {
     const result = await api<T>('/recipes/generate', 'POST', undefined, pending.id, pending.operation);
     await AsyncStorage.removeItem(key);
@@ -155,6 +168,9 @@ export async function paidGenerate<T>(context: unknown): Promise<T> {
       if (pending.operation) await consumeOperation(owner, pending.operation);
     }
     throw error;
+  } finally {
+    stopped = true;
+    if (pollTimer) clearTimeout(pollTimer);
   }
 }
 

@@ -7,6 +7,7 @@ from backend.app.auth import authenticate_token
 from backend.app.store import Store
 from backend.app.config import settings
 from backend.app.schemas import InventoryInput, Recipe, Evaluation
+from pydantic import BaseModel
 
 mcp = FastMCP('FridgeOut')
 # Each API request owns a dedicated subprocess with one immutable bearer token.
@@ -40,14 +41,24 @@ async def update_inventory(item: InventoryInput) -> str:
     return json.dumps(await (await store()).request('inventory_items', 'POST', item.model_dump()))
 
 
+class RecipeToSave(BaseModel):
+    recipe: Recipe
+    evaluation: Evaluation
+
+
 @mcp.tool()
-async def save_recipe(recipe: Recipe, evaluation: Evaluation, session_id: str) -> str:
+async def save_recipes(recipes: list[RecipeToSave], session_id: str) -> str:
+    if not 1 <= len(recipes) <= 5:
+        raise ValueError('Save between one and five recipes')
     db = await store()
     if not await db.request('recipe_sessions', item_id=session_id):
         raise ValueError('Session does not belong to the authenticated user')
-    return json.dumps(await db.request('recipe_drafts', 'POST', {**recipe.model_dump(),
-        'image_status': 'none' if settings().demo_mode else 'pending',
-        'evaluation': evaluation.model_dump(), 'evaluation_score': evaluation.overall_score, 'session_id': session_id}))
+    rows = [{**item.recipe.model_dump(),
+             'image_status': 'none' if settings().demo_mode else 'pending',
+             'evaluation': item.evaluation.model_dump(),
+             'evaluation_score': item.evaluation.overall_score, 'session_id': session_id}
+            for item in recipes]
+    return json.dumps(await db.request('recipe_drafts', 'POST', rows))
 
 
 @mcp.tool()

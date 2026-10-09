@@ -145,8 +145,12 @@ export function FridgeOut() {
     setTab('Kitchen');
     await task('generate', async () => {
       setRecipes([]);
-      const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: [...foods].sort((a, b) => a.id.localeCompare(b.id)), preferences: preferences.data });
+      const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: [...foods].sort((a, b) => a.id.localeCompare(b.id)), preferences: preferences.data }, progress => {
+        setRecipes(progress.recipes.map(item => ({ ...item, preview_only: progress.status !== 'complete' })));
+        setAttempts(progress.attempts);
+      });
       void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] });
+      setRecipe(old => old ? data.recipes.find(item => item.id === old.id) ?? old : null);
       setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
     });
   }
@@ -162,10 +166,10 @@ export function FridgeOut() {
   }
   function saveButton(item: Recipe) {
     const saved = !!favorites.data?.some(r => r.id === item.id);
-    return <Button label={saved ? 'Saved' : 'Save to Favorite'} icon={saved ? 'checkmark' : 'bookmark-outline'} secondary busy={busy === `save-${item.id}`} disabled={!!busy || saved} onPress={() => saveFavorite(item)} />;
+    return <Button label={saved ? 'Saved' : 'Save to Favorite'} icon={saved ? 'checkmark' : 'bookmark-outline'} secondary busy={busy === `save-${item.id}`} disabled={!!busy || saved || item.preview_only} onPress={() => saveFavorite(item)} />;
   }
   function recommendations() {
-    return busy === 'generate' ? <View style={[s.card, s.generating]}><SketchBorder /><HandDrawnIcon name="bowl" size={54} color={palette.orange} /><ActivityIndicator size="large" color={green} /><Text style={s.cardTitle}>A few good ideas are simmering…</Text><Text style={[s.muted, { textAlign: 'center' }]}>Loading your kitchen, checking ingredients,{ '\n' }evaluating recipes and choosing the best matches.</Text><Text style={s.small}>This may take a couple of minutes.</Text></View> : recipes.length ? <><View style={s.sectionHeading}><Text style={s.sectionTitle}>Picked for you</Text><Text style={s.small}>{attempts} generation round{attempts === 1 ? '' : 's'}</Text></View>{recipes.map((r, i) => <View key={r.id} style={{ gap: 6 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} />{saveButton(r)}</View>)}</> : <Empty icon="restaurant-outline" title="Your ingredients. New possibilities." text="Generate recipes from your confirmed inventory. Only recipes that pass ingredient, preference and quality checks appear here." />;
+    return busy === 'generate' && !recipes.length ? <View style={[s.card, s.generating]}><SketchBorder /><HandDrawnIcon name="bowl" size={54} color={palette.orange} /><ActivityIndicator size="large" color={green} /><Text style={s.cardTitle}>A few good ideas are simmering…</Text><Text style={[s.muted, { textAlign: 'center' }]}>Loading your kitchen, checking ingredients,{ '\n' }evaluating recipes and choosing the best matches.</Text><Text style={s.small}>This may take a couple of minutes.</Text></View> : recipes.length ? <><View style={s.sectionHeading}><Text style={s.sectionTitle}>Picked for you</Text><Text style={s.small}>{busy === 'generate' ? 'Finding more ideas… · ' : ''}{attempts} generation round{attempts === 1 ? '' : 's'}</Text></View>{recipes.map((r, i) => <View key={r.id} style={{ gap: 6 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} />{saveButton(r)}</View>)}</> : <Empty icon="restaurant-outline" title="Your ingredients. New possibilities." text="Generate recipes from your confirmed inventory. Only recipes that pass ingredient, preference and quality checks appear here." />;
   }
   const queryError = inventory.error ?? preferences.error ?? (tab === 'Favorite' ? favorites.error : null);
 
@@ -217,7 +221,7 @@ export function FridgeOut() {
         <View style={s.staples}><Icon name="sparkles-outline" size={18} /><Text style={[s.small, { flex: 1 }]}>The basics are covered: salt, black pepper, water & cooking oil.</Text></View>
         <Button label="Find something to cook" icon="sparkles-outline" busy={busy === 'generate'} disabled={!!busy || !foods.length || !preferences.data} onPress={generate} />
         <Text style={s.footnote}>Made for your ingredients. Checked for your preferences.</Text>
-        {(busy === 'generate' || recipes.length > 0) && <View style={{ gap: 18 }} onLayout={event => { if (recipes.length > 0 && busy !== 'generate') contentScroll.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true }); }}>{recommendations()}</View>}
+        {(busy === 'generate' || recipes.length > 0) && <View style={{ gap: 18 }} onLayout={event => { if (recipes.length > 0) contentScroll.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true }); }}>{recommendations()}</View>}
       </>}
       {tab === 'Recipes' && <>
         <Text style={s.eyebrow}>A LITTLE KITCHEN INSPIRATION</Text><Text style={s.title}>Your next{ '\n' }delicious idea.</Text><Text style={s.muted}>Recipes that put your remaining ingredients to delicious use.</Text>

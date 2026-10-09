@@ -11,7 +11,7 @@ Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，�
 - 食材添加、编辑、删除、标记已用完；六类饮食偏好与最长烹饪时间。
 - LangGraph：通过 MCP 加载真实库存与偏好 → 最多五个候选 → 硬规则校验 → 一次批量独立评分 → 不足五份时最多再生成两次 → 排序返回最多五份。
 - 校验名称、单位、累计用量、默认调料白名单、饮食限制与烹饪时间。受限制饮食的未知食材保守拒绝；无需限制的未知食材仍可生成。
-- MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipe`、`get_favorite_recipes`。Agent 不调用库存修改工具。
+- MCP 工具 `get_inventory`、`update_inventory`、`get_user_preferences`、`save_recipes`、`get_favorite_recipes`。Agent 不调用库存修改工具。
 - Supabase 按用户 RLS、菜谱会话归属的复合外键。库存、菜谱和图片读取使用用户 JWT；费用账本、图片上传和后台清理使用仅后端的 service-role key。
 - 菜谱卡片和详情按菜名、食材与步骤生成 AI 图片，图片保存到 Supabase 私有 Storage；生成与 Favorite 保存分开，已保存图片复用，失败可手动重试。
 - 首页生成结果点击 Save 才进入 Favorite，成功后立即更新该账号的收藏缓存并后台校验。收藏不限数量，用户主动删除才移除；Favorite API 用用户 JWT 读取，不启动 MCP。
@@ -153,7 +153,7 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com
 LANGFUSE_ENVIRONMENT=development
 ```
 
-Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现有 `backend/.env`，不要放前端或提交密钥。部署并生成一次后，在 Langfuse Traces 找 `recipes.generate`，按 metadata 中的 `agent_run_id` 或 `request_id` 对照 Render 日志。记录每轮候选数、校验失败类别、评分、去重数、累计接受数、最终数量，以及 MCP、模型、保存和图片清理耗时。模型调用包含 Token 和按现有后端费率估算的 USD 成本（不是账单金额）。
+Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现有 `backend/.env`，不要放前端或提交密钥。部署并生成一次后，在 Langfuse Traces 找 `recipes.generate`，按 metadata 中的 `agent_run_id` 或 `request_id` 对照 Render 日志。记录每轮候选数、校验失败类别、评分、去重数、累计接受数、最终数量，以及 MCP、模型和保存耗时。模型调用包含 Token 和按现有后端费率估算的 USD 成本（不是账单金额）。
 
 不上传完整提示词、库存、饮食偏好、照片、JWT 或用户 ID；异常只记录类型。使用手工 SDK spans，因为当前直接通过 OpenAI SDK 调模型，仅加 LangGraph callback 无法覆盖全部步骤。后台批量导出，应用关闭时在线程中 flush/shutdown，不在每次生成末尾等待导出。这里只追踪实际执行的生成流程（幂等缓存命中不重新创建），以及文本模型调用；独立生图请求尚未纳入。追踪 SDK 的启动、更新、结束失败均不阻断业务。
 
@@ -166,3 +166,9 @@ SDK 接口参考：[Langfuse instrumentation](https://langfuse.com/docs/observab
 保留 Render request/error logs 和 `latency_ms`。`event=provider_call` 每次实际文本/生图模型调用记录 success/failure、操作、重试序号、错误类型和耗时；失败率为同一时间窗口 failure 数 / 总调用数（包括重试），HTTP API 失败率从请求日志的 5xx / 总请求数统计，可排除 `/health`。`event=guardrails` 记录 rejected_count（拒绝菜谱数）和 failure_count（失败规则数），`event=recipe_round` / `event=recipe_result` 记录每轮和最终数量。事件关联 request_id 和生成时的 agent_run_id；不增加外部监控网络请求或额外 LLM 调用。
 
 Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执行 [production_metrics.sql](docs/production_metrics.sql)，按 UTC 日、模型和模态聚合。日志同时记录 `event=model_usage`，缺失 usage 或持久化失败单独记录。已有清理策略保留 usage 90 天；无法拿到 usage 的失败调用可能仍收费，估算不能替代供应商账单。这里提供日志和 SQL 汇总，不自动配置告警或独立监控仪表盘。
+
+### 渐进式菜谱结果
+
+每轮通过本地校验和评分的新菜谱一次性批量写入（最多 5 条），通过 `save_recipes` MCP 工具做一次会话归属检查和一次 PostgREST 批量 POST。随后在现有 `ai_jobs.result` 保存进度，最终完成仍由原有免费额度/幂等逻辑确认。`GET /recipes/generation/{job_id}` 只返回当前登录用户自己的 generate 任务，前端每 2.5 秒查询一次，已有合格结果立刻可阅读，不等待后续补齐轮次。每次仍以 5 个为目标，最多 3 轮；收藏和生图在最终确认完成后启用。进度查询不会重新调用模型或扣试用额度；进度保存失败不阻断生成，最后 POST 返回值仍为准。需要重新加载前端以启用渐进显示，旧前端仍能收到完整结果。
+
+图片清理使用 FastAPI BackgroundTasks 在响应发送后执行，生成与删除不再等待 Storage 清理。数据库图片清理队列和定时维护继续提供重试：进程退出导致任务没跑完时，队列记录仍在，会在后续维护处理。没有新增付费 worker，没有 schema 迁移。

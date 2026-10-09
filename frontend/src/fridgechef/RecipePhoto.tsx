@@ -26,7 +26,7 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
       retry.current = false;
       return api<ImageResult>(`/recipes/${recipe.id}/image${manualRetry ? '?retry=true' : ''}`, 'POST');
     },
-    enabled: !DEMO && !!recipe.image_status && recipe.image_status !== 'none',
+    enabled: !recipe.preview_only && !DEMO && !!recipe.image_status && recipe.image_status !== 'none',
     retry: false,
     staleTime: 50 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -43,8 +43,8 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
         <View style={{ position: 'absolute', right: 12, top: 14, backgroundColor: palette.cream, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }}><Text style={{ color: palette.muted, fontSize: 9 }}>Kitchen illustration</Text></View>
         <View style={{ position: 'absolute', bottom: 12, left: 12, right: 12, backgroundColor: '#FFFDF5F2', borderTopLeftRadius: 18, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 19, padding: 12, alignItems: 'center', gap: 7 }}><SketchBorder />
           {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>Creating your dish image…</Text></View> : <>
-            <Text style={{ color: palette.ink, fontSize: 12, textAlign: 'center' }}>{DEMO ? 'Your dish image appears in live mode' : failed ? (image.error instanceof Error ? image.error.message : 'Your recipe is saved. Try its image again.') : 'Bring this recipe to life'}</Text>
-            {!DEMO && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); setPollRound(round => round + 1); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
+            <Text style={{ color: palette.ink, fontSize: 12, textAlign: 'center' }}>{recipe.preview_only ? 'Your recipe is ready to read. Images follow shortly.' : DEMO ? 'Your dish image appears in live mode' : failed ? (image.error instanceof Error ? image.error.message : 'Your recipe is saved. Try its image again.') : 'Bring this recipe to life'}</Text>
+            {!DEMO && !recipe.preview_only && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); setPollRound(round => round + 1); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
           </>}
         </View>
       </>}

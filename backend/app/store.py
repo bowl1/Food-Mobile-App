@@ -27,7 +27,8 @@ class Store:
         params.update(filters or {})
         payload = data
         if method in ('POST', 'PATCH') and not table.startswith('rpc/'):
-            payload = {**(data or {}), 'user_id': self.identity.user_id}
+            payload = ([{**row, 'user_id': self.identity.user_id} for row in data]
+                       if isinstance(data, list) else {**(data or {}), 'user_id': self.identity.user_id})
         async with supabase_client() as client:
             try:
                 response = await client.request(method, f'{cfg.supabase_url}/rest/v1/{table}',
@@ -54,11 +55,14 @@ class Store:
             if method == 'GET':
                 return [r for r in rows if not item_id or r['id'] == item_id]
             if method == 'POST':
-                row = {**data, 'id': str(uuid4()), 'user_id': self.identity.user_id,
-                       'created_at': datetime.now(timezone.utc).isoformat()}
-                db.execute('INSERT INTO records VALUES (?,?,?,?)',
-                           (row['id'], self.identity.user_id, table, json.dumps(row)))
-                return [row]
+                inserted = []
+                for item in data if isinstance(data, list) else [data]:
+                    row = {**item, 'id': str(uuid4()), 'user_id': self.identity.user_id,
+                           'created_at': datetime.now(timezone.utc).isoformat()}
+                    db.execute('INSERT INTO records VALUES (?,?,?,?)',
+                               (row['id'], self.identity.user_id, table, json.dumps(row)))
+                    inserted.append(row)
+                return inserted
             matches = [r for r in rows if not item_id or r['id'] == item_id]
             for row in matches:
                 if method == 'DELETE':

@@ -22,7 +22,7 @@ class AgentState(TypedDict, total=False):
     attempts: int
 
 
-def build_graph(call_tool):
+def build_graph(call_tool, on_progress=None):
     @traced('load_context')
     async def load(state):
         # Any tool failure propagates: never generate from guessed inventory.
@@ -89,6 +89,8 @@ def build_graph(call_tool):
         event('recipe_round', attempt=state['attempts'], candidate_count=len(state['candidates']),
               valid_count=len(valid), duplicate_count=duplicate_count, low_score_count=low_score_count,
               accepted_total=len(accepted))
+        if on_progress is not None and len(accepted) > len(state['accepted']):
+            await on_progress(sorted(accepted, key=lambda row: row['evaluation'].overall_score, reverse=True)[:5], state['attempts'])
         return {'accepted': accepted, 'errors': errors}
 
     def route(state):
