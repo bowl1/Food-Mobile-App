@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { api, DEMO, Recipe } from './api';
+import { SketchBorder } from './SketchPaper';
+import { foodArt, palette } from './theme';
 
 type ImageResult = { status: 'ready' | 'generating' | 'failed' | 'unavailable'; url?: string };
 
@@ -24,16 +26,20 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
   const busy = image.isFetching || image.data?.status === 'generating';
   const url = image.data?.url;
   const failed = !!image.error || image.data?.status === 'failed' || loadFailed;
-  return <View style={detail ? { gap: 6 } : { width: '100%', height: '100%' }}>
-    <View style={{ width: '100%', height: detail ? 240 : '100%', backgroundColor: '#E8EEDB', overflow: 'hidden', borderRadius: detail ? 18 : 0, alignItems: 'center', justifyContent: 'center' }}>
-      {url && !loadFailed ? <Image source={{ uri: url }} accessibilityLabel={`AI generated image of ${recipe.recipe_name}`} resizeMode="cover" style={{ width: '100%', height: '100%' }} onError={() => setLoadFailed(true)} /> : <View style={{ alignItems: 'center', gap: 8, padding: 15 }}>
-        {busy ? <><ActivityIndicator color="#285A43" /><Text style={{ color: '#285A43', fontSize: 12 }}>Creating your dish image…</Text></> : <>
-          <Text style={{ color: '#285A43', fontSize: 12 }}>{DEMO ? 'Images are available in live mode' : failed ? 'Image unavailable. Your recipe is saved.' : 'Create an AI image for this recipe'}</Text>
-          {!DEMO && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); retry.current = true; void image.refetch(); }} style={{ padding: 10 }}><Text style={{ color: '#285A43', fontWeight: '700' }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
-        </>}
-      </View>}
-      {url && !loadFailed && <View style={{ position: 'absolute', bottom: 10, left: 12, backgroundColor: 'rgba(0,0,0,.6)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 }}><Text style={{ color: '#fff', fontSize: 10 }}>AI generated</Text></View>}
+  return <View style={detail ? { gap: 8 } : { width: '100%', height: '100%' }}>
+    <View style={{ width: '100%', height: detail ? 280 : '100%', backgroundColor: '#FFF6DF', overflow: 'hidden', borderRadius: detail ? 24 : 0 }}>
+      {url && !loadFailed ? <Image source={{ uri: url }} accessibilityLabel={`AI generated image of ${recipe.recipe_name}`} resizeMode="cover" style={{ width: '100%', height: '100%' }} onError={() => setLoadFailed(true)} /> : <>
+        <Image source={foodArt} accessible={false} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
+        <View style={{ position: 'absolute', right: 12, top: 14, backgroundColor: palette.cream, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }}><Text style={{ color: palette.muted, fontSize: 9 }}>Kitchen illustration</Text></View>
+        <View style={{ position: 'absolute', bottom: 12, left: 12, right: 12, backgroundColor: '#FFFDF5F2', borderTopLeftRadius: 18, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 19, padding: 12, alignItems: 'center', gap: 7 }}><SketchBorder />
+          {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>Creating your dish image…</Text></View> : <>
+            <Text style={{ color: palette.ink, fontSize: 12, textAlign: 'center' }}>{DEMO ? 'Your dish image appears in live mode' : failed ? 'Your recipe is saved. Try its image again.' : 'Bring this recipe to life'}</Text>
+            {!DEMO && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
+          </>}
+        </View>
+      </>}
+      {url && !loadFailed && <View style={{ position: 'absolute', bottom: 12, left: 12, backgroundColor: '#173C35E8', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}><Text style={{ color: palette.cream, fontSize: 10 }}>AI generated</Text></View>}
     </View>
-    {detail && <Text style={{ fontSize: 11, color: '#798274' }}>AI illustration based on this recipe. Actual results may differ.</Text>}
+    {detail && <Text style={{ fontSize: 11, color: palette.muted }}>{url ? 'AI illustration based on this recipe. Actual results may differ.' : 'Decorative kitchen illustration; your recipe image is not ready yet.'}</Text>}
   </View>;
 }
