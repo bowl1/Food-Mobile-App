@@ -6,7 +6,7 @@
 
 ## 1. Supabase
 
-在你的 Supabase 项目 SQL Editor 执行 `supabase/migrations/001_fridgechef.sql` 一次，再执行 `supabase/migrations/002_recipe_images.sql` 创建 AI 图片字段、私有存储和任务租约函数。已有项目只执行 002。确认五张表存在、RLS 已启用，并开启 Email Auth。前后端使用同一个项目 URL 和 anon/publishable key；不要使用 service-role key。
+按编号应用 `supabase/migrations/001` 到 `009`；已有项目只应用未执行的迁移。开启 Email Auth。普通库存、菜谱和图片访问使用用户 JWT 和 RLS；新费用账本和后台清理需要仅 Render 后端持有的 Supabase legacy `service_role` key。前端始终只用 anon/publishable key。
 
 ## 2. 发布后端源码
 
@@ -22,9 +22,12 @@
 | --- | --- |
 | SUPABASE_URL | 你的 Supabase 项目 URL |
 | SUPABASE_ANON_KEY | 同项目 anon/publishable key |
+| SUPABASE_SERVICE_ROLE_KEY | 同项目 legacy service_role key，仅后端费用控制和清理使用 |
 | OPENAI_API_KEY | 后端 OpenAI key |
 | OPENAI_MODEL | gpt-6-luna |
 | OPENAI_IMAGE_MODEL | gpt-image-2.5-flare（可选，代码默认值；图片 API 额外计费） |
+| AI_DAILY_BUDGET_USD | 10（可选，全站 UTC 每日预留预算，非账单硬上限） |
+| FREE_TRIAL_USES | 3（可选，每账号总计免费试用次数，无期限，含菜谱和图片） |
 | DEMO_MODE | false |
 | CORS_ORIGINS | Web 客户端的准确 origin，多个以逗号分隔；原生手机不受浏览器 CORS 约束 |
 
@@ -55,7 +58,7 @@ EXPO_PUBLIC_DEMO_MODE=0
 
 ## GitHub Actions 自动迁移与部署
 
-推送到 `deploy/fridgechef-render` 后，工作流先运行后端测试、前端类型检查和临时 PostgreSQL 迁移测试、RLS 隔离测试和图片任务租约测试（各用独立数据库）。全部通过后，使用 Supabase CLI 执行尚未记录的迁移，成功后才调用 Render Hook 部署本次测试的 commit。PR 只测试，不访问生产数据库。也可以在 Actions 手动运行。
+推送到 `deploy/fridgechef-render` 后，工作流先运行后端测试、前端类型检查和临时 PostgreSQL 迁移测试、RLS 隔离测试、图片任务租约、费用控制和清理测试（各用独立数据库），再验证真实并发预算事务。全部通过后，使用 Supabase CLI 执行尚未记录的迁移，成功后才调用 Render Hook 部署本次测试的 commit。PR 只测试，不访问生产数据库。也可以在 Actions 手动运行。
 
 GitHub Actions Secrets：
 - `SUPABASE_DB_URL`：Supabase Connect → Session pooler 的 PostgreSQL URL，包含实际数据库密码（特殊字符必须 URL 编码），建议加 `sslmode=require`。
@@ -66,3 +69,13 @@ Render Settings → Auto-Deploy 必须设为 **Off**，避免 Render 提前部�
 初始 001/002 迁移支持已手动建表的项目重复执行，保留已有记录，并重新建立项目的 RLS policies 和图片函数。Supabase CLI 会记录已执行版本，以后只执行新迁移。后续 schema 变更必须添加新的编号 SQL 文件，不要修改已执行的迁移。迁移失败时不会请求 Render 部署；生产数据库不会自动回滚，修复后重新运行工作流。
 
 工作流成功表示 Render 已接受部署请求；最终构建结果和 Live 状态请查看 Render Events。此流水线仅部署后端，不发布手机安装包。
+
+## 本次成本控制版本的发布顺序
+
+1. 在 Render → Environment 添加 `SUPABASE_SERVICE_ROLE_KEY`，值来自同项目 Supabase Settings → API Keys → Legacy API Keys 的 `service_role`；不要放在前端、GitHub 源码或聊天里。该值与 `SUPABASE_DB_URL` 不同。
+2. 按需调整试用配置和全站预算，默认值见 [成本控制说明](COST_CONTROLS.md)。008 迁移会立即永久删除每用户最新 10 条以外的菜谱并排队清理图片，发布前确认此数据清理范围。
+3. 推送到部署分支后，已有 Actions 流程会在测试通过后应用 003–009 迁移，再部署后端。无需新增 Actions Secret。
+4. 更新手机端。菜谱生成和识别现在要求 UUID `Idempotency-Key`；旧版客户端的这两个接口会返回 422，需要与后端一起发布新版 App。
+5. 验证生成、History、图片和错误提示。`/health` 不检查费用账本或服务密钥；缺少账本配置时新付费操作返回 503，已有数据读取仍可用。
+
+后台清理运行在 API 进程中，启动时及运行期间每六小时分批执行；Render 免费实例休眠期间暂停，不能当作精确的定时任务。没有创建付费 worker、升级托管套餐或添加 Supabase 付费图片变换。
