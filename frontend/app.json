@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F8F7F2"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.libowen.fridgetofood"
@@ -34,7 +29,16 @@
           "cameraPermission": "Allow FridgeChef to photograph your ingredients.",
           "microphonePermission": false
         }
-      ]
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#F8F7F2"
+        }
+      ],
+      "expo-font"
     ]
   }
 }

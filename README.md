@@ -1,6 +1,6 @@
 # FridgeChef — AI Recipe Agent v1
 
-Expo + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeChef 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
+Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeChef 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
 
 ## 已实现
 
@@ -20,13 +20,13 @@ Expo + TypeScript 移动应用，识别食材后由用户确认入库，通过 F
 
 ## 快速体验（不需要服务密钥）
 
-需要 Python 3.10+、Node 22 LTS、npm。仓库根目录运行：
+需要 Python 3.10+、Node 22.13+（建议 Node 22 LTS）、npm。仓库根目录运行：
 
 ```bash
 ./start.sh --demo
 ```
 
-通过 Expo Go 扫码，或在 Expo 中选择 iOS / Android。演示模式使用本地 SQLite，只有一个演示用户，不代表真实用户隔离。扫描返回固定 egg / spinach / mushroom，菜谱和评分是固定规则演示，界面持续显示 DEMO。默认演示库存为空，先扫码确认或手动添加食材。
+使用支持 SDK 57 的 Expo Go 扫码，或在 Expo 中选择 iOS / Android。演示模式使用本地 SQLite，只有一个演示用户，不代表真实用户隔离。扫描返回固定 egg / spinach / mushroom，菜谱和评分是固定规则演示，界面持续显示 DEMO。默认演示库存为空，先扫码确认或手动添加食材。
 
 手机访问开发机时，在真实模式的 `frontend/.env` 设置 `EXPO_PUBLIC_API_BASE_URL=http://你的电脑局域网IP:8000`，演示模式使用 `EXPO_PUBLIC_API_BASE_URL=http://你的电脑局域网IP:8000 ./start.sh --demo`。手机和开发机须在同一网络。iOS 模拟器默认 localhost；Android 模拟器默认 10.0.2.2。Web 预览依赖已包含，可在 Expo 中按 w，或在 frontend 中运行 `npm run web`。
 
