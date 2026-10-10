@@ -2,6 +2,29 @@
 
 *Cook with what you have*
 
+
+FridgeOut 把冰箱里剩下的食材变成今晚的料理。拍照识别并确认食材，根据现有库存、饮食偏好和烹饪时间生成菜谱，再把喜欢的配方保存到 Favorite。用剩下的菜，减少食物浪费。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/01-kitchen.png" width="220" alt="Kitchen：首页拍照识别剩余食材" /><br />拍下冰箱里剩下的食材</td>
+    <td align="center"><img src="docs/screenshots/02-confirm-ingredients.png" width="220" alt="确认识别出的食材名称、数量和单位" /><br />确认识别结果</td>
+    <td align="center"><img src="docs/screenshots/03-inventory.png" width="220" alt="库存管理：添加、编辑和删除食材" /><br />管理现有食材</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/04-recipes.png" width="220" alt="根据现有食材推荐菜谱并保存收藏" /><br />找到可以做的菜</td>
+    <td align="center"><img src="docs/screenshots/05-favorites.png" width="220" alt="Favorite：查看和删除收藏菜谱" /><br />收藏喜欢的配方</td>
+    <td align="center"><img src="docs/screenshots/06-your-plan.png" width="220" alt="You：查看生成额度和升级入口" /><br />查看自己的方案</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/07-preferences.png" width="220" alt="设置饮食偏好与最长烹饪时间" /><br />按口味和时间定制</td>
+  </tr>
+</table>
+
+截图中的无限生成为管理员账号权限；普通账号享有 3 次免费试用，Plus 每月包含 20 次。
+
+---
+
 Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeOut 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
 
 ## 已实现
