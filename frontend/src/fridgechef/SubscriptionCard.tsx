@@ -43,7 +43,7 @@ export function SubscriptionCard({ userId, status, onBusyChange }: { userId: str
     <Text style={{ color: palette.muted }}>20 kitchen runs per monthly billing period. Each scan includes one recipe generation and up to five dish images. Generating directly uses one run.</Text>
     {status?.subscribed && <Text style={{ color: palette.ink }}>{status.monthly_remaining} of {status.monthly_uses} monthly runs remaining{status.period_ends_at ? ` · Renews or expires ${new Date(status.period_ends_at).toLocaleDateString()}` : ''}</Text>}
     {pack && <Text style={{ color: palette.ink, fontSize: 18 }}>{pack.product.priceString} / month</Text>}
-    <Text style={{ color: palette.muted, fontSize: 12 }}>Auto-renewing monthly subscription. Unused runs do not roll over. Failed AI attempts may still use a run. Manage or cancel in your Apple account.</Text>
+    <Text style={{ color: palette.muted, fontSize: 12 }}>Auto-renewing monthly subscription. Unused runs do not roll over. Failed scans and recipe generations do not use a run. Manage or cancel in your Apple account.</Text>
     {!available && <Text style={{ color: palette.muted }}>Subscriptions will be available in the configured iOS app. Expo Go, web and Android cannot purchase this plan.</Text>}
     {available && !status?.subscribed && <Pressable accessibilityRole="button" disabled={!pack || !!busy || !privacy} onPress={() => { if (pack) void perform('purchase', () => buyMonthly(userId, pack)); }} style={{ padding: 14, backgroundColor: palette.orange, borderRadius: 12, opacity: !pack || busy || !privacy ? .5 : 1 }}>
       {busy === 'purchase' ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Subscribe monthly</Text>}

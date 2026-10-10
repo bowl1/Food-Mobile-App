@@ -9,6 +9,15 @@ declare a uuid := '00000000-0000-0000-0000-000000000001';
  recipe uuid:='20000000-0000-0000-0000-000000000001';
 begin
  if (free_trial_status(a,3)->>'remaining_uses')::integer<>3 then raise exception 'initial allowance'; end if;
+ j:=gen_random_uuid();
+ r:=reserve_free_ai_job(a,j,'recognize','failed-scan',.02,99,10,3);
+ update ai_jobs set status='failed' where id=j;
+ if (free_trial_status(a,3)->>'remaining_uses')::integer<>3 then raise exception 'failed scan charged'; end if;
+ if reserve_free_ai_job(a,gen_random_uuid(),'generate','released-scan',.1,99,10,3,j)->>'state'<>'operation_required' then raise exception 'released scan reused'; end if;
+ j:=gen_random_uuid();
+ r:=reserve_free_ai_job(a,j,'generate','expired',.1,99,10,3);
+ update ai_jobs set expires_at=now()-interval '1 second' where id=j;
+ if (free_trial_status(a,3)->>'remaining_uses')::integer<>3 then raise exception 'expired request charged'; end if;
  r:=reserve_free_ai_job(a,scan,'recognize','photo',.02,99,10,3);
  if r->>'state'<>'reserved' then raise exception 'first scan %',r; end if;
  if reserve_free_ai_job(a,scan,'recognize','photo',.02,99,10,3)->>'state'<>'running' then raise exception 'duplicate'; end if;
@@ -18,11 +27,11 @@ begin
  r:=reserve_free_ai_job(a,gen,'generate','meal',.1,99,10,3,scan);
  if r->>'state'<>'reserved' or r->>'free_operation_id'<>scan::text then raise exception 'included generation %',r; end if;
  update ai_jobs set status='complete',result=jsonb_build_object('recipes',jsonb_build_array(jsonb_build_object('id',recipe))) where id=gen;
- if (select count(*) from ai_free_operations where user_id=a)<>1 then raise exception 'included generation debited twice'; end if;
+ if (select count(*) from ai_free_operations where user_id=a and not use_released)<>1 then raise exception 'included generation debited twice'; end if;
  if reserve_free_ai_job(a,gen_random_uuid(),'generate','again',.1,99,10,3,scan)->>'state'<>'operation_used' then raise exception 'reused scan'; end if;
 end $$;
 reset role;
-update recipe_sessions set free_operation_id=(select id from ai_free_operations limit 1);
+update recipe_sessions set free_operation_id=(select id from ai_free_operations where not use_released limit 1);
 set role service_role;
 do $$
 declare a uuid := '00000000-0000-0000-0000-000000000001';
@@ -36,14 +45,14 @@ begin
   if r->>'state'<>'reserved' then raise exception 'included image %',r; end if;
   update ai_jobs set status='failed' where id=j;
  end loop;
- if (select count(*) from ai_free_operations where user_id=a)<>1 then raise exception 'images debit root uses'; end if;
+ if (select count(*) from ai_free_operations where user_id=a and not use_released)<>1 then raise exception 'images debit root uses'; end if;
  for i in 1..2 loop
   j:=gen_random_uuid();
   r:=reserve_free_ai_job(a,j,'generate','manual',.1,99,10,3);
   if r->>'state'<>'reserved' then raise exception 'manual free use %',r; end if;
-  update ai_jobs set status='complete',result='{"recipes":[]}' where id=j;
+  update ai_jobs set status='complete',result='{"recipes":[{"id":"20000000-0000-0000-0000-000000000001"}]}' where id=j;
  end loop;
- if (select count(*) from ai_free_operations where user_id=a)<>3 then raise exception 'lifetime total'; end if;
+ if (select count(*) from ai_free_operations where user_id=a and not use_released)<>3 then raise exception 'lifetime total'; end if;
  if reserve_free_ai_job(a,gen_random_uuid(),'recognize','extra',.02,99,10,3)->>'state'<>'free_limit' then raise exception 'lifetime cap'; end if;
  if (free_trial_status(a,3)->>'remaining_uses')::integer<>0 then raise exception 'remaining display'; end if;
  update ai_free_trials set started_at=now()-interval '35 days' where user_id=a;
@@ -54,7 +63,7 @@ begin
  -- Images remain included even after the three root uses are exhausted and months pass.
  if reserve_free_ai_job(a,gen_random_uuid(),'image','late dish',.05,99,10,3,null,recipe)->>'state'<>'reserved' then raise exception 'included image expired'; end if;
  if reserve_free_ai_job(a,gen_random_uuid(),'image','dish',.05,99,10,3,null,recipe)->>'state'<>'image_limit' then raise exception 'image attempt cap'; end if;
- select id into j from ai_jobs where user_id=a and kind='recognize';
+ select id into j from ai_jobs where user_id=a and kind='recognize' and status='complete';
  if reserve_free_ai_job(a,j,'recognize','photo',.02,99,10,3)->>'state'<>'complete' then raise exception 'completed replay after expiry'; end if;
  if reserve_free_ai_job(b,gen_random_uuid(),'generate','budget',.1,99,.01,3)->>'state'<>'daily_limit' then raise exception 'global budget'; end if;
  if exists(select 1 from ai_free_trials where user_id=b) then raise exception 'denied request starts trial'; end if;

@@ -27,6 +27,7 @@ update auth.users set email='bowenivy0@gmail.com', email_confirmed_at=now()
 where id='00000000-0000-0000-0000-000000000001';
 \ir ../../supabase/migrations/011_unlimited_recipe_generation_role.sql
 \ir ../../supabase/migrations/012_ios_monthly_subscriptions.sql
+\ir ../../supabase/migrations/013_release_failed_ai_uses.sql
 do $$ begin
  if not exists(select 1 from ai_account_roles where user_id='00000000-0000-0000-0000-000000000001') then
   raise exception 'confirmed target account did not receive role'; end if;
