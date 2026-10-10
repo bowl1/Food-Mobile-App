@@ -35,7 +35,7 @@ Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，�
 ## 真实模式
 
 1. 创建 Supabase 项目，按编号执行 `supabase/migrations/001` 到 `006` 的迁移；已有项目只执行尚未应用的迁移。推荐使用已有 GitHub Actions 自动迁移流程。启用 Email Auth，生产环境保持邮箱确认开启。
-2. 编辑 `backend/.env`（不存在时新建），填写 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`OPENAI_API_KEY`。默认使用 `gpt-6-luna`，统一用于食材识别、菜谱生成和独立评分；可通过 `OPENAI_MODEL` 覆盖。菜谱配图默认 `OPENAI_IMAGE_MODEL=gpt-image-2.5-flare`，复用后端 OpenAI key，使用 1024×1024、low quality JPEG，产生额外图片 API token 费用（不再使用旧 mini 的每张价格估算）。`DEMO_MODE=false`。
+2. 编辑 `backend/.env`（不存在时新建），填写 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`OPENAI_API_KEY`。默认使用 `gpt-6-luna`，统一用于食材识别、菜谱生成和独立评分；可通过 `OPENAI_MODEL` 覆盖。菜谱配图采用写实美食摄影风格（自然光、真实食物质感）；已有图片继续复用，新生成图片使用新风格。默认 `OPENAI_IMAGE_MODEL=gpt-image-2.5-flare`，复用后端 OpenAI key，使用 1024×1024、low quality JPEG，产生额外图片 API token 费用（不再使用旧 mini 的每张价格估算）。`DEMO_MODE=false`。
 3. 编辑 `frontend/.env`（不存在时新建），填写 `EXPO_PUBLIC_SUPABASE_URL`、`EXPO_PUBLIC_SUPABASE_ANON_KEY` 和 `EXPO_PUBLIC_API_BASE_URL`。`EXPO_PUBLIC_DEMO_MODE=0`。
 4. 运行 `./start.sh`。注册后若开启邮件验证，先点击验证邮件，再登录。在 You 页面保存偏好，然后添加食材、生成菜谱。
 

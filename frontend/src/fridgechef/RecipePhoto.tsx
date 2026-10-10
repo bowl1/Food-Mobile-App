@@ -50,6 +50,6 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
       </>}
       {url && !loadFailed && <View style={{ position: 'absolute', bottom: 12, left: 12, backgroundColor: '#173C35E8', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}><Text style={{ color: palette.cream, fontSize: 10 }}>AI generated</Text></View>}
     </View>
-    {detail && <Text style={{ fontSize: 11, color: palette.muted }}>{url ? 'AI illustration based on this recipe. Actual results may differ.' : 'Decorative kitchen illustration; your recipe image is not ready yet.'}</Text>}
+    {detail && <Text style={{ fontSize: 11, color: palette.muted }}>{url ? 'AI-generated recipe image. Actual results may differ.' : 'Decorative kitchen illustration; your recipe image is not ready yet.'}</Text>}
   </View>;
 }
