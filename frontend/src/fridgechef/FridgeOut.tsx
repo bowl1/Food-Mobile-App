@@ -236,14 +236,13 @@ export function FridgeOut() {
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 
   return <SafeAreaView style={s.root} edges={['top', 'left', 'right']}><PaperTexture />
-    <View style={s.header}><Text accessibilityRole="header" style={s.pageLabel}>{tab === 'Favorite' ? 'Favorites' : tab === 'You' ? 'Your preferences' : tab}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Upgrade to FridgeOut Plus" style={s.upgradeButton} onPress={() => setUpgradeOpen(true)}><Icon name="sparkles-outline" size={16} color={palette.orange} /><Text style={s.upgradeText}>Upgrade</Text></Pressable></View>
     {DEMO && <View style={s.demo}><Icon name="flask-outline" size={15} /><Text style={s.demoText}>LOCAL DEMO · sample recognition & recipe scores</Text></View>}
     <ScrollView ref={contentScroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       {(!!error || !!queryError) && <View accessibilityRole="alert" style={s.error}><Text style={s.errorText}>{error || (queryError as Error).message}</Text><Pressable onPress={() => { setError(''); inventory.refetch(); preferences.refetch(); if (tab === 'Favorite') favorites.refetch(); }}><Text style={s.link}>Try again</Text></Pressable></View>}
-      {!DEMO && freeTrial.data && (tab === 'Kitchen' || tab === 'You') && <Pressable accessibilityRole="button" accessibilityLabel="View plan and remaining uses" onPress={() => setUpgradeOpen(true)} style={s.usageBar}>
-        <Icon name="sparkles-outline" size={16} /><Text style={[s.small, { flex: 1, color: green }]}>{freeTrial.data.unlimited_generation ? 'Unlimited recipe generation' : freeTrial.data.subscribed ? `${freeTrial.data.monthly_remaining} monthly runs · ${freeTrial.data.remaining_uses} free tries` : freeTrial.data.exhausted ? 'Free tries used · Explore Plus' : `${freeTrial.data.remaining_uses} free tries remaining`}</Text><Icon name="arrow-forward" size={15} />
-      </Pressable>}
+      <View style={s.planRow}>
+        <Text style={[s.small, { flex: 1, color: green }]}>{DEMO ? 'Cook with what you have' : freeTrial.data ? freeTrial.data.unlimited_generation ? 'Unlimited recipe generation' : freeTrial.data.subscribed ? `${freeTrial.data.monthly_remaining} monthly runs · ${freeTrial.data.remaining_uses} free tries` : `${freeTrial.data.remaining_uses} free tries remaining` : 'Your kitchen, your next meal'}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Upgrade to FridgeOut Plus" style={s.upgradeButton} onPress={() => setUpgradeOpen(true)}><Icon name="sparkles-outline" size={16} color={palette.orange} /><Text style={s.upgradeText}>Upgrade</Text></Pressable>
+      </View>
       {!!notice && <View style={s.notice}><Icon name="information-circle-outline" size={20} /><Text style={[s.muted, { flex: 1 }]}>{notice}</Text></View>}
       {tab === 'Kitchen' && <>
         <Text style={s.eyebrow}>{brand.tagline}</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
@@ -315,7 +314,7 @@ function RecipeCard({ recipe, index, onPress, favorites = false }: { recipe: Rec
 }
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#FFF8E9' }, content: { padding: 24, paddingTop: 12, gap: 16, width: '100%', maxWidth: 650, alignSelf: 'center', paddingBottom: 35 },
-  header: { paddingHorizontal: 24, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', maxWidth: 650, alignSelf: 'center' }, pageLabel: { flex: 1, fontSize: 16, fontWeight: '600', color: green }, usageBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#EFF0E1', padding: 12, borderRadius: 14, minHeight: 44 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   upgradeButton: { minHeight: 44, paddingHorizontal: 12, borderRadius: 15, backgroundColor: '#FBE2BA', borderWidth: 1, borderColor: '#E5D5B9', flexDirection: 'row', gap: 5, alignItems: 'center', justifyContent: 'center' }, upgradeText: { color: '#173C35', fontSize: 12, fontWeight: '700' },
   eyebrow: { fontSize: 10, letterSpacing: 2, fontWeight: '700', color: '#9D411E', marginTop: 8 }, title: { fontSize: 35, lineHeight: 41, letterSpacing: -1.2, color: '#173C35', fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' }, muted: { fontSize: 14, lineHeight: 22, color: '#716753' }, small: { fontSize: 12, lineHeight: 18, color: '#756851' },
   hero: { padding: 20, backgroundColor: '#FFF6DF', borderRadius: 28, borderWidth: 1, borderColor: '#E5D5B9', overflow: 'hidden' }, heroArt: { alignItems: 'center', height: 155, justifyContent: 'center' }, heroImage: { width: '100%', height: '100%' }, authArt: { width: '100%', height: 160 }, heroBadge: { position: 'absolute', bottom: 3, right: 5, padding: 10, borderRadius: 18, backgroundColor: '#FAFBF4', flexDirection: 'row', alignItems: 'center', gap: 6, transform: [{ rotate: '-5deg' }] }, dot: { width: 6, height: 6, backgroundColor: '#63835F', borderRadius: 3 }, badgeText: { fontSize: 10, fontWeight: '700', color: green, letterSpacing: .5 }, heroTitle: { fontSize: 23, color: '#173C35', fontWeight: '700', textAlign: 'center', marginTop: 15, marginBottom: 9, letterSpacing: -.5 },
