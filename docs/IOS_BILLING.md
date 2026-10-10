@@ -61,7 +61,7 @@ Apple TestFlight 和 App Review 使用沙盒购买。测试/审核所访问的�
 
 ## 实现位置
 
-- `frontend/src/fridgechef/SubscriptionCard.tsx`：You 页的方案、购买、恢复、管理订阅、条款。
+- `frontend/src/fridgechef/SubscriptionCard.tsx`：右上角 Upgrade 打开的独立页面：方案、购买、恢复、管理订阅、条款。
 - `frontend/src/fridgechef/billing.ts`：原生 SDK 和账户绑定。
 - `backend/app/billing.py`：服务端 RevenueCat 校验和 webhook。
 - `supabase/migrations/012_ios_monthly_subscriptions.sql`：订阅账期、受保护的额度账本、原子扣次；普通用户无权写入。
