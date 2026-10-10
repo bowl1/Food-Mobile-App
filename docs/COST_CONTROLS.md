@@ -1,6 +1,6 @@
 # FridgeOut 成本控制
 
-已接入 iOS 月订阅：US$7.99/月，每个商店账期 20 次；另保留每账号终身 3 次免费试用。权益由后端验证 RevenueCat 的 App Store 状态，客户端不能自报会员。配置和上线步骤见 [iOS 收费](IOS_BILLING.md)。
+已接入 iOS 月订阅：US$6.99/月，每个商店账期 20 次；另保留每账号终身 3 次免费试用。权益由后端验证 RevenueCat 的 App Store 状态，客户端不能自报会员。配置和上线步骤见 [iOS 收费](IOS_BILLING.md)。
 
 ## 模型调用
 
