@@ -71,6 +71,10 @@ export function FridgeOut() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [aiBusy, setAiBusy] = useState('');
+  const actionLock = useRef(false);
+  const aiLock = useRef(false);
+  const deletedRecipeIds = useRef(new Set<string>());
   const [authRegister, setAuthRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -81,7 +85,6 @@ export function FridgeOut() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [attempts, setAttempts] = useState(0);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
-  const [deleteRecipe, setDeleteRecipe] = useState<Recipe | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Food | null>(null);
   const enabled = !!session;
   const freeTrial = useQuery({ queryKey: ['chef-free-trial', session?.user.id], queryFn: () => api<FreeTrial>('/ai/trial'), enabled: enabled && !DEMO, staleTime: 30000 });
@@ -102,9 +105,18 @@ export function FridgeOut() {
   const activePrefs = dietaryLabels.filter(([key]) => preferences.data?.[key]);
 
   async function task(name: string, action: () => Promise<void>) {
-    setBusy(name); setError(''); setNotice('');
+    const isAI = name === 'photo' || name === 'generate';
+    const lock = isAI ? aiLock : actionLock;
+    if (lock.current || (isAI && actionLock.current) || (name === 'logout' && aiLock.current)) return;
+    lock.current = true;
+    const updateBusy = isAI ? setAiBusy : setBusy;
+    updateBusy(name); setError(''); setNotice('');
     try { await action(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.'); }
-    finally { setBusy(''); if (name === 'photo' || name === 'generate') void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] }); }
+    finally {
+      lock.current = false;
+      updateBusy('');
+      if (isAI) void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] });
+    }
   }
   async function refreshInventory() { await queryClient.invalidateQueries({ queryKey: ['chef-inventory'] }); }
   function checkFood(item: DraftFood) {
@@ -146,12 +158,13 @@ export function FridgeOut() {
     await task('generate', async () => {
       setRecipes([]);
       const data = await paidGenerate<{ recipes: Recipe[]; attempts: number; message: string }>({ inventory: [...foods].sort((a, b) => a.id.localeCompare(b.id)), preferences: preferences.data }, progress => {
-        setRecipes(progress.recipes.map(item => ({ ...item, preview_only: progress.status !== 'complete' })));
+        setRecipes(progress.recipes.filter(item => !deletedRecipeIds.current.has(item.id)).map(item => ({ ...item, preview_only: progress.status !== 'complete' })));
         setAttempts(progress.attempts);
       });
       void queryClient.invalidateQueries({ queryKey: ['chef-free-trial'] });
-      setRecipe(old => old ? data.recipes.find(item => item.id === old.id) ?? old : null);
-      setRecipes(data.recipes); setAttempts(data.attempts); setNotice(data.message);
+      const remaining = data.recipes.filter(item => !deletedRecipeIds.current.has(item.id));
+      setRecipe(old => old ? remaining.find(item => item.id === old.id) ?? old : null);
+      setRecipes(remaining); setAttempts(data.attempts); setNotice(data.message);
     });
   }
   async function saveFavorite(item: Recipe) {
@@ -164,12 +177,37 @@ export function FridgeOut() {
       void queryClient.invalidateQueries({ queryKey: key });
     });
   }
+  async function deleteFavorite(item: Recipe) {
+    await task(`delete-recipe-${item.id}`, async () => {
+      await api(`/recipes/favorites/${item.id}`, 'DELETE');
+      deletedRecipeIds.current.add(item.id);
+      const favoritesKey = ['chef-favorites', session!.user.id];
+      await queryClient.cancelQueries({ queryKey: favoritesKey });
+      queryClient.setQueryData<Recipe[]>(favoritesKey, old => (old ?? []).filter(r => r.id !== item.id));
+      queryClient.removeQueries({ queryKey: ['chef-recipe-image', item.id] });
+      setRecipes(old => old.filter(r => r.id !== item.id));
+      setRecipe(old => old?.id === item.id ? null : old);
+      setNotice('Recipe deleted.');
+      void queryClient.invalidateQueries({ queryKey: favoritesKey });
+    });
+  }
+  async function deleteIngredient(item: Food) {
+    await task('delete', async () => {
+      await api(`/inventory/${item.id}`, 'DELETE');
+      const key = ['chef-inventory', session!.user.id];
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData<Food[]>(key, old => (old ?? []).filter(food => food.id !== item.id));
+      setConfirmDelete(null);
+      setNotice(aiLock.current ? 'Ingredient deleted. Recipes already in progress use the inventory loaded for that request.' : 'Ingredient deleted.');
+      void queryClient.invalidateQueries({ queryKey: key });
+    });
+  }
   function saveButton(item: Recipe) {
     const saved = !!favorites.data?.some(r => r.id === item.id);
     return <Button label={saved ? 'Saved' : 'Save to Favorite'} icon={saved ? 'checkmark' : 'bookmark-outline'} secondary busy={busy === `save-${item.id}`} disabled={!!busy || saved || item.preview_only} onPress={() => saveFavorite(item)} />;
   }
   function recommendations() {
-    return busy === 'generate' && !recipes.length ? <View style={[s.card, s.generating]}><SketchBorder /><HandDrawnIcon name="bowl" size={54} color={palette.orange} /><ActivityIndicator size="large" color={green} /><Text style={s.cardTitle}>A few good ideas are simmering…</Text><Text style={[s.muted, { textAlign: 'center' }]}>Loading your kitchen, checking ingredients,{ '\n' }evaluating recipes and choosing the best matches.</Text><Text style={s.small}>This may take a couple of minutes.</Text></View> : recipes.length ? <><View style={s.sectionHeading}><Text style={s.sectionTitle}>Picked for you</Text><Text style={s.small}>{busy === 'generate' ? 'Finding more ideas… · ' : ''}{attempts} generation round{attempts === 1 ? '' : 's'}</Text></View>{recipes.map((r, i) => <View key={r.id} style={{ gap: 6 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} />{saveButton(r)}</View>)}</> : <Empty icon="restaurant-outline" title="Your ingredients. New possibilities." text="Generate recipes from your confirmed inventory. Only recipes that pass ingredient, preference and quality checks appear here." />;
+    return aiBusy === 'generate' && !recipes.length ? <View style={[s.card, s.generating]}><SketchBorder /><HandDrawnIcon name="bowl" size={54} color={palette.orange} /><ActivityIndicator size="large" color={green} /><Text style={s.cardTitle}>A few good ideas are simmering…</Text><Text style={[s.muted, { textAlign: 'center' }]}>Loading your kitchen, checking ingredients,{ '\n' }evaluating recipes and choosing the best matches.</Text><Text style={s.small}>This may take a couple of minutes.</Text></View> : recipes.length ? <><View style={s.sectionHeading}><Text style={s.sectionTitle}>Picked for you</Text><Text style={s.small}>{aiBusy === 'generate' ? 'Finding more ideas… · ' : ''}{attempts} generation round{attempts === 1 ? '' : 's'}</Text></View>{recipes.map((r, i) => <View key={r.id} style={{ gap: 6 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} />{saveButton(r)}</View>)}</> : <Empty icon="restaurant-outline" title="Your ingredients. New possibilities." text="Generate recipes from your confirmed inventory. Only recipes that pass ingredient, preference and quality checks appear here." />;
   }
   const queryError = inventory.error ?? preferences.error ?? (tab === 'Favorite' ? favorites.error : null);
 
@@ -206,8 +244,8 @@ export function FridgeOut() {
         <Text style={s.eyebrow}>{brand.tagline}</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
         <View style={s.hero}><SketchBorder /><View style={s.heroArt}><Image source={kitchenArt} accessible={false} style={s.heroImage} resizeMode="contain" /><View style={s.heroBadge}><View style={s.dot} /><Text style={s.badgeText}>No extra shopping</Text></View></View>
           <Text style={s.heroTitle}>Use what’s left.</Text><Text style={[s.muted, { textAlign: 'center', marginBottom: 18 }]}>Snap what’s left. Confirm your ingredients.{ '\n' }Find a recipe that puts them to use.</Text>
-          <Button label="Scan my ingredients" icon="camera-outline" busy={busy === 'photo'} disabled={!!busy} onPress={() => pickPhoto(true)} />
-          <Pressable disabled={!!busy} accessibilityRole="button" onPress={() => pickPhoto(false)}><View style={[s.row, { justifyContent: 'center', gap: 6 }]}><Text style={s.link}>Choose from photo library</Text><Icon name="arrow-forward" size={15} /></View></Pressable>
+          <Button label="Scan my ingredients" icon="camera-outline" busy={aiBusy === 'photo'} disabled={!!busy || !!aiBusy} onPress={() => pickPhoto(true)} />
+          <Pressable disabled={!!busy || !!aiBusy} accessibilityRole="button" onPress={() => pickPhoto(false)}><View style={[s.row, { justifyContent: 'center', gap: 6 }]}><Text style={s.link}>Choose from photo library</Text><Icon name="arrow-forward" size={15} /></View></Pressable>
         </View>
         <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>In your kitchen <Text style={s.count}>{foods.length}</Text></Text><Text style={s.small}>Confirmed ingredients, ready for inspiration</Text></View>
           <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel="Add ingredient" onPress={() => setEditing({ food_name: '', quantity: 1, unit: 'piece', source: 'manual' })} style={s.add}><Icon name="add" /></Pressable></View>
@@ -219,21 +257,21 @@ export function FridgeOut() {
             <Pressable disabled={!!busy} accessibilityRole="button" accessibilityLabel={`Delete ${food.food_name}`} style={s.iconButton} onPress={() => setConfirmDelete(food)}><Icon name="trash-outline" size={18} color="#A49B90" /></Pressable>
           </View>)}</View>}
         <View style={s.staples}><Icon name="sparkles-outline" size={18} /><Text style={[s.small, { flex: 1 }]}>The basics are covered: salt, black pepper, water & cooking oil.</Text></View>
-        <Button label="Find something to cook" icon="sparkles-outline" busy={busy === 'generate'} disabled={!!busy || !foods.length || !preferences.data} onPress={generate} />
+        <Button label="Find something to cook" icon="sparkles-outline" busy={aiBusy === 'generate'} disabled={!!busy || !!aiBusy || !foods.length || !preferences.data} onPress={generate} />
         <Text style={s.footnote}>Made for your ingredients. Checked for your preferences.</Text>
-        {(busy === 'generate' || recipes.length > 0) && <View style={{ gap: 18 }} onLayout={event => { if (recipes.length > 0) contentScroll.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true }); }}>{recommendations()}</View>}
+        {(aiBusy === 'generate' || recipes.length > 0) && <View style={{ gap: 18 }} onLayout={event => { if (recipes.length > 0) contentScroll.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true }); }}>{recommendations()}</View>}
       </>}
       {tab === 'Recipes' && <>
         <Text style={s.eyebrow}>A LITTLE KITCHEN INSPIRATION</Text><Text style={s.title}>Your next{ '\n' }delicious idea.</Text><Text style={s.muted}>Recipes that put your remaining ingredients to delicious use.</Text>
         <View style={s.chips}>{activePrefs.map(([key, label]) => <View key={key} style={s.chip}><Icon name="checkmark" size={13} /><Text style={s.chipText}>{label}</Text></View>)}<View style={s.chip}><Icon name="time-outline" size={13} /><Text style={s.chipText}>{preferences.data?.max_cooking_time ?? 30} min max</Text></View></View>
         {recommendations()}
-        {recipes.length === 0 && <Button label="Generate my recipes" busy={busy === 'generate'} disabled={!!busy || !foods.length || !preferences.data} icon="sparkles-outline" onPress={generate} />}
+        {recipes.length === 0 && <Button label="Generate my recipes" busy={aiBusy === 'generate'} disabled={!!busy || !!aiBusy || !foods.length || !preferences.data} icon="sparkles-outline" onPress={generate} />}
         {!foods.length && <Button label="Add ingredients first" secondary onPress={() => setTab('Kitchen')} />}
       </>}
       {tab === 'Favorite' && <>
         <Text style={s.eyebrow}>YOUR SAVED RECIPES</Text><Text style={s.title}>Good ideas,{ '\n' }worth keeping.</Text><Text style={s.muted}>Recipes you choose to save, all in one place.{ '\n' }Saved recipes reflect the inventory at generation time.</Text>
         {favorites.isFetching && !favorites.isLoading && <Text style={s.small}>Syncing your favorites…</Text>}
-        {favorites.isLoading ? <ActivityIndicator color={green} /> : favorites.data?.length ? favorites.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} favorites /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { setError(''); setDeleteRecipe(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" /><Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text></Pressable></View>) : <Empty icon="book-outline" title="Your favorites start here" text="Tap Save on a generated recipe to keep it here." />}
+        {favorites.isLoading ? <ActivityIndicator color={green} /> : favorites.data?.length ? favorites.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} favorites /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { void deleteFavorite(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" />{busy === `delete-recipe-${r.id}` ? <ActivityIndicator size="small" color="#A34F3D" /> : <Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text>}</Pressable></View>) : <Empty icon="book-outline" title="Your favorites start here" text="Tap Save on a generated recipe to keep it here." />}
       </>}
       {tab === 'You' && <>
         <Text style={s.eyebrow}>A KITCHEN THAT KNOWS YOU</Text><Text style={s.title}>Your taste.{ '\n' }Your way.</Text><Text style={s.muted}>Tell us what works for you. We’ll keep it in mind for every recipe.</Text>
@@ -241,7 +279,7 @@ export function FridgeOut() {
         <View style={s.card}><SketchBorder /><View style={s.row}><Icon name="time-outline" /><Text style={s.cardTitle}>Time on your side</Text></View><Text style={s.small}>Maximum cooking time</Text><View style={s.chips}>{[15, 30, 45, 60].map(n => <Pressable accessibilityRole="button" accessibilityState={{ selected: prefsDraft.max_cooking_time === n }} key={n} onPress={() => setPrefsDraft(p => ({ ...p, max_cooking_time: n }))} style={[s.timeChip, prefsDraft.max_cooking_time === n && { backgroundColor: green }]}><Text style={[s.chipText, prefsDraft.max_cooking_time === n && { color: '#fff' }]}>{n} min</Text></Pressable>)}</View></View>
         <Button label="Save my preferences" busy={busy === 'preferences'} disabled={!!busy} icon="checkmark-outline" onPress={() => task('preferences', async () => { await api('/preferences', 'PUT', prefsDraft); await queryClient.invalidateQueries({ queryKey: ['chef-preferences'] }); setNotice('Preferences saved. Your next recipes will use these choices.'); })} />
         <View style={[s.card, { marginTop: 16 }]}><SketchBorder /><Text style={s.cardTitle}>Your personal kitchen</Text><Text style={s.muted}>{session.user.email}</Text><Text style={s.small}>{DEMO ? 'Demo data stays in the local SQLite database.' : 'Your inventory, preferences and favorites belong to your account.'}</Text>
-        {!DEMO && <Button label="Sign out" secondary disabled={!!busy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); await clearKitchenCache(session.user.id); setSession(null); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
+        {!DEMO && <Button label="Sign out" secondary disabled={!!busy || !!aiBusy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); await clearKitchenCache(session.user.id); setSession(null); deletedRecipeIds.current.clear(); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
       </>}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={s.nav}><View style={s.navInner}>{(['Kitchen', 'Recipes', 'Favorite', 'You'] as Tab[]).map((item, i) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => { setTab(item); setNotice(''); }} style={s.navItem}><View style={[s.navIcon, tab === item && s.navSelected]}><Icon name={(['basket', 'restaurant', 'bookmark', 'person'] as IconName[])[i]} color={tab === item ? palette.orange : palette.muted} size={22} /></View><Text style={[s.navText, tab === item && { color: palette.orange, fontWeight: '700' }]}>{item}</Text></Pressable>)}</View></SafeAreaView>
@@ -259,19 +297,7 @@ export function FridgeOut() {
     </ScrollView></SafeAreaView></Modal>
     <Modal visible={recipe !== null} animationType="slide" onRequestClose={() => setRecipe(null)}><SafeAreaView style={s.root}><PaperTexture /><ScrollView contentContainerStyle={s.content}>{recipe && <><Pressable accessibilityRole="button" onPress={() => setRecipe(null)}><Text style={s.link}>← Back to recipes</Text></Pressable><RecipePhoto recipe={recipe} detail /><Text style={s.eyebrow}>FROM YOUR KITCHEN</Text><Text style={s.title}>{recipe.recipe_name}</Text><View style={s.chips}><View style={s.chip}><Icon name="time-outline" size={15} /><Text style={s.chipText}>{recipe.cooking_time_minutes} min</Text></View><View style={s.chip}><Icon name="sparkles-outline" size={15} /><Text style={s.chipText}>{Math.round(recipe.evaluation_score * 100)}% quality score{DEMO ? ' · demo' : ''}</Text></View></View><Text style={s.muted}>{recipe.reason}</Text>
       <Text style={s.sectionTitle}>What you’ll use</Text><View style={s.card}><SketchBorder />{recipe.ingredients.map((item, i) => <View key={i} style={[s.ingredientLine, i > 0 && s.divider]}><Text style={[s.foodName, { flex: 1 }]}>{item.name}</Text><Text style={s.muted}>{item.quantity} {item.unit}</Text></View>)}</View><Text style={s.small}>Pantry basics: {recipe.pantry_staples.join(', ') || 'none'}</Text><Text style={s.sectionTitle}>Let’s make it</Text>{recipe.steps.map((step, i) => <View key={i} style={[s.row, { alignItems: 'flex-start' }]}><View style={s.step}><Text style={s.chipText}>{i + 1}</Text></View><Text style={[s.muted, { flex: 1, color: '#344236' }]}>{step}</Text></View>)}<View style={s.notice}><Icon name="checkmark-circle-outline" /><Text style={[s.small, { flex: 1 }]}>Passed inventory and dietary checks at generation time. Historical recipes may include ingredients you’ve since used.</Text></View>{saveButton(recipe)}<Button label="Back to my kitchen" onPress={() => { setRecipe(null); setTab('Kitchen'); }} /></>}</ScrollView></SafeAreaView></Modal>
-    <Modal visible={!!deleteRecipe} transparent animationType="fade" onRequestClose={() => !busy && setDeleteRecipe(null)}><View style={s.overlay}><View style={s.sheet}><PaperTexture /><SketchBorder /><Text style={s.sectionTitle}>Delete {deleteRecipe?.recipe_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This recipe and its image will be permanently removed from Favorite.</Text>{!!error && <Text accessibilityRole="alert" style={s.errorText}>{error}</Text>}<Button label="Delete recipe" busy={busy === 'delete-recipe'} disabled={!!busy} onPress={() => task('delete-recipe', async () => {
-      const id = deleteRecipe!.id;
-      await api(`/recipes/favorites/${id}`, 'DELETE');
-      const favoritesKey = ['chef-favorites', session!.user.id];
-      await queryClient.cancelQueries({ queryKey: favoritesKey });
-      queryClient.setQueryData<Recipe[]>(favoritesKey, old => (old ?? []).filter(r => r.id !== id));
-      queryClient.removeQueries({ queryKey: ['chef-recipe-image', id] });
-      setRecipes(old => old.filter(r => r.id !== id));
-      setRecipe(old => old?.id === id ? null : old);
-      setDeleteRecipe(null); setNotice('Recipe deleted.');
-      void queryClient.invalidateQueries({ queryKey: favoritesKey });
-    })} /><Button label="Keep recipe" secondary disabled={!!busy} onPress={() => { setDeleteRecipe(null); setError(''); }} /></View></View></Modal>
-    <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}><View style={s.overlay}><View style={s.sheet}><PaperTexture /><SketchBorder /><Text style={s.sectionTitle}>Remove {confirmDelete?.food_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This ingredient will be removed from your inventory.</Text><Button label="Remove ingredient" busy={busy === 'delete'} onPress={() => task('delete', async () => { await api(`/inventory/${confirmDelete!.id}`, 'DELETE'); await refreshInventory(); setConfirmDelete(null); })} /><Button label="Keep ingredient" secondary disabled={!!busy} onPress={() => setConfirmDelete(null)} /></View></View></Modal>
+    <Modal visible={!!confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(null)}><View style={s.overlay}><View style={s.sheet}><PaperTexture /><SketchBorder /><Text style={s.sectionTitle}>Remove {confirmDelete?.food_name}?</Text><Text style={[s.muted, { marginVertical: 15 }]}>This ingredient will be removed from your inventory.</Text><Button label="Remove ingredient" busy={busy === 'delete'} disabled={!!busy} onPress={() => { if (confirmDelete) void deleteIngredient(confirmDelete); }} /><Button label="Keep ingredient" secondary disabled={!!busy} onPress={() => setConfirmDelete(null)} /></View></View></Modal>
   </SafeAreaView>;
 }
 function RecipeCard({ recipe, index, onPress, favorites = false }: { recipe: Recipe; index: number; onPress: () => void; favorites?: boolean }) {

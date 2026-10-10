@@ -180,3 +180,7 @@ Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执
 ### Langfuse Users / Sessions
 
 开发追踪使用已认证 Supabase `user_id` 作为 Langfuse User，不上传邮箱。Session 使用数据库返回的 `free_operation_id`：一次识别、它包含的菜谱生成，以及这些菜谱的图片请求会出现在同一个 Session 下；直接生成菜谱则创建自己的 Session。它是一次操作链的分组，不是登录 session，也不是每一轮生成。每个实际执行的付费操作有 `ai.recognize` / `ai.generate` / `ai.image` 根追踪，包含 job_id / request_id；所有内部 spans 继承 User / Session。幂等缓存命中不产生新模型追踪，原调用已有记录。无需新环境变量，仍只在 `APP_ENVIRONMENT=development` 且 Langfuse 开启时发送。历史 Trace 不回填，部署后新调用才有 User / Session。
+
+### 等待模型时继续操作
+
+前端将照片识别/菜谱生成与普通修改的加载状态分开。模型请求进行中可以切换页面、增删改库存、保存偏好或删除收藏；同一时间只启动一个识别/生成请求，普通修改也防止重复点击。Favorite 的 Delete recipe 直接删除，不再弹出二次确认；成功后马上更新列表与本地缓存，服务端失败则保留记录并显示错误。生成过程的进度/最终结果会过滤已删除的菜谱，避免晚到的结果重新显示它。库存修改不会重启已提交的模型调用，当前菜谱使用后端读取时的库存和偏好，下一次生成使用最新数据。
