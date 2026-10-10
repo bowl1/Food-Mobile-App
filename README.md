@@ -1,29 +1,67 @@
-# FridgeOut: Recipe Wizard
+<p align="center">
+  <img src="frontend/assets/fridgeout-logo.png" width="96" alt="FridgeOut logo" />
+</p>
 
-*Cook with what you have*
+<h1 align="center">FridgeOut · Recipe Wizard</h1>
+<p align="center"><strong>Cook with what you have.</strong></p>
+<p align="center">Turn what’s left in your fridge into tonight’s dinner.<br />Use what you have. Waste less. Enjoy every bite.</p>
 
+<p align="center">
+  <a href="#from-fridge-to-dinner">How it works</a> ·
+  <a href="#keep-the-good-ideas">Favorites</a> ·
+  <a href="#made-for-your-kitchen">Your preferences</a> ·
+  <a href="#try-fridgeout">Plans</a>
+</p>
 
-FridgeOut 把冰箱里剩下的食材变成今晚的料理。拍照识别并确认食材，根据现有库存、饮食偏好和烹饪时间生成菜谱，再把喜欢的配方保存到 Favorite。用剩下的菜，减少食物浪费。
+<p align="center">
+  <img src="docs/screenshots/01-kitchen.png" width="300" alt="FridgeOut Kitchen: scan your fridge and cook with what you have" />
+</p>
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/01-kitchen.png" width="220" alt="Kitchen：首页拍照识别剩余食材" /><br />拍下冰箱里剩下的食材</td>
-    <td align="center"><img src="docs/screenshots/02-confirm-ingredients.png" width="220" alt="确认识别出的食材名称、数量和单位" /><br />确认识别结果</td>
-    <td align="center"><img src="docs/screenshots/03-inventory.png" width="220" alt="库存管理：添加、编辑和删除食材" /><br />管理现有食材</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/04-recipes.png" width="220" alt="根据现有食材推荐菜谱并保存收藏" /><br />找到可以做的菜</td>
-    <td align="center"><img src="docs/screenshots/05-favorites.png" width="220" alt="Favorite：查看和删除收藏菜谱" /><br />收藏喜欢的配方</td>
-    <td align="center"><img src="docs/screenshots/06-your-plan.png" width="220" alt="You：查看生成额度和升级入口" /><br />查看自己的方案</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/07-preferences.png" width="220" alt="设置饮食偏好与最长烹饪时间" /><br />按口味和时间定制</td>
-  </tr>
-</table>
+## From fridge to dinner
 
-截图中的无限生成为管理员账号权限；普通账号享有 3 次免费试用，Plus 每月包含 20 次。
+Open your fridge, take a photo, and confirm the ingredients. Add, edit or remove items whenever your kitchen changes. FridgeOut uses your confirmed inventory to suggest up to five recipes that fit your preferences and cooking time.
+
+<p align="center">
+  <img src="docs/screenshots/02-confirm-ingredients.png" width="280" alt="Confirm ingredient names, quantities and units after scanning" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/03-inventory.png" width="280" alt="Manage your ingredients and find something to cook" />
+</p>
+<p align="center"><sub>Confirm what you have &nbsp; · &nbsp; Make it into a meal</sub></p>
+
+## Keep the good ideas
+
+Explore recipes with dish images and clear cooking steps. Save the ones you love to Favorite, ready to revisit next time. Your collection stays until you choose to remove a recipe.
+
+<p align="center">
+  <img src="docs/screenshots/04-recipes.png" width="280" alt="A recipe recommendation based on available banana and pear" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/05-favorites.png" width="280" alt="Saved chicken recipe in Favorite" />
+</p>
+<p align="center"><sub>Find your next delicious idea &nbsp; · &nbsp; Save a favorite</sub></p>
+
+## Made for your kitchen
+
+Set your dietary preferences and choose how much time you want to spend cooking. Check your remaining generations and explore Plus from the You page, all in the same warm, hand-drawn kitchen.
+
+<p align="center">
+  <img src="docs/screenshots/06-your-plan.png" width="280" alt="You page with recipe plan and Upgrade entry" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/07-preferences.png" width="280" alt="Dietary preferences and maximum cooking time" />
+</p>
+<p align="center"><sub>Your taste &nbsp; · &nbsp; Your time &nbsp; · &nbsp; Your way</sub></p>
+
+## Try FridgeOut
+
+Start with **3 free kitchen runs**, with no expiry. Each scan includes one recipe generation and up to five dish images; generating directly uses one run. Failed scans and recipe generations do not consume a run.
+
+**FridgeOut Plus — US$6.99/month · 20 runs per billing period.** Unused monthly runs do not roll over. The App Store provides local pricing and subscription management; store setup and purchase testing are still required before launch.
+
+<sub>Product screenshots show an administrator’s unlimited-generation account. Regular accounts use the free or Plus allowances. Dish images are generated illustrations of the recipe, not photographs of a tested finished meal.</sub>
 
 ---
+
+<details>
+<summary><strong>Developer guide · Setup, architecture and deployment</strong></summary>
 
 Expo SDK 57 + TypeScript 移动应用，识别食材后由用户确认入库，通过 FastAPI → LangGraph → MCP → Supabase 生成受约束的菜谱。仓库仅保留 FridgeOut 第一版；旧 Firebase / Express 搜索应用、收藏与分享功能及旧演示素材已移除。
 
@@ -211,3 +249,5 @@ Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执
 ### 菜谱生图排队
 
 前端所有菜谱卡片/详情共用最多 2 个实际图片 HTTP 请求的队列，其余显示排队中。后端未预留付费任务时遇到 busy/rate_limit，会释放图片租约并恢复 pending，返回 queued；前端按 10/60 秒自动再查询，不需要人工 Retry。已失败的付费模型任务不自动再次生图，仍需用户主动重试。临时网络错误和未标记付费任务失败的 5xx 最多自动恢复两次，通过原有租约/已上传图片复用避免重复生图。180 秒前端等待时间从实际获取请求名额开始计算，等待本地队列或后端 queued 不计时。`npm test` 验证五个请求最多两个并发、失败会释放队列名额，CI 同步执行。
+
+</details>
