@@ -3,12 +3,13 @@ import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, DEMO, Recipe } from './api';
 import { queuedImageRequest } from './imageQueue';
+import { cachedImage, storeImage, removeCachedImage } from './imageCache';
 import { SketchBorder } from './SketchPaper';
 import { foodArt, palette } from './theme';
 
 type ImageResult = { status: 'ready' | 'generating' | 'queued' | 'failed' | 'unavailable'; retry_after?: number; client_started_at?: number; url?: string; thumbnail_url?: string };
 
-export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail?: boolean }) {
+export function RecipePhoto({ recipe, userId, detail = false }: { recipe: Recipe; userId: string; detail?: boolean }) {
   const retry = useRef(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pollRound, setPollRound] = useState(0);
@@ -29,11 +30,12 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
     setLoadFailed(false);
   }, [recipe.id]);
   const image = useQuery({
-    queryKey: ['chef-recipe-image', recipe.id],
+    queryKey: ['chef-recipe-image', userId, recipe.id, detail ? 'full' : 'thumb'],
     queryFn: async () => {
-      setWaitingForSlot(true);
-      try {
-        return await queuedImageRequest(async () => {
+      const local = await cachedImage(userId, recipe.id, detail);
+      if (local && !retry.current) return { status: 'ready' as const, url: local, thumbnail_url: local };
+      // Existing images only need a signed URL; they never wait behind model work.
+      const request = async () => {
           setWaitingForSlot(false);
           if (pollingStarted.current === null) {
             pollingStarted.current = Date.now();
@@ -46,9 +48,17 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
             pollingStarted.current = null;
             setStartedAt(null);
           }
+          if (result.status === 'ready') {
+            const remote = detail ? result.url : result.thumbnail_url ?? result.url;
+            const saved = remote ? await storeImage(userId, recipe.id, detail, remote) : undefined;
+            if (saved) return { ...result, url: saved, thumbnail_url: saved };
+          }
           return { ...result, client_started_at: pollingStarted.current ?? undefined };
-        });
-      } finally { setWaitingForSlot(false); }
+      };
+      if (recipe.image_status === 'ready') return request();
+      setWaitingForSlot(true);
+      try { return await queuedImageRequest(request); }
+      finally { setWaitingForSlot(false); }
     },
     enabled: !recipe.preview_only && !DEMO && !!recipe.image_status && recipe.image_status !== 'none',
     retry: (count, error) => count < 2 && (error instanceof TypeError ||
@@ -80,9 +90,9 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
         <Image source={foodArt} accessible={false} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
         <View style={{ position: 'absolute', right: 12, top: 14, backgroundColor: palette.cream, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }}><Text style={{ color: palette.muted, fontSize: 9 }}>Kitchen illustration</Text></View>
         <View style={{ position: 'absolute', bottom: 12, left: 12, right: 12, backgroundColor: '#FFFDF5F2', borderTopLeftRadius: 18, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 19, padding: 12, alignItems: 'center', gap: 7 }}><SketchBorder />
-          {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>{queued ? 'Your dish image is queued…' : 'Creating your dish image…'}</Text></View> : <>
+          {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>{queued ? 'Your dish image is queued…' : recipe.image_status === 'ready' ? 'Loading your saved image…' : 'Creating your dish image…'}</Text></View> : <>
             <Text style={{ color: palette.ink, fontSize: 12, textAlign: 'center' }}>{recipe.preview_only ? 'Your recipe is ready to read. Images follow shortly.' : DEMO ? 'Your dish image appears in live mode' : failed ? (image.error instanceof Error ? image.error.message : 'Your recipe is saved. Try its image again.') : 'Bring this recipe to life'}</Text>
-            {!DEMO && !recipe.preview_only && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); pollingStarted.current = null; setStartedAt(null); setPollExpired(false); setPollRound(round => round + 1); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
+            {!DEMO && !recipe.preview_only && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); pollingStarted.current = null; setStartedAt(null); setPollExpired(false); setPollRound(round => round + 1); retry.current = true; void removeCachedImage(userId, recipe.id).then(() => image.refetch()); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
           </>}
         </View>
       </>}
