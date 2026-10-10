@@ -10,6 +10,7 @@ import anyio
 import httpx
 from .config import settings
 from .http_client import supabase_client
+from . import tracing, monitoring
 
 active_job = ContextVar('active_ai_job', default=None)
 active_free_operation = ContextVar('active_free_operation', default=None)
@@ -68,7 +69,9 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
     operation_token = active_free_operation.set(result['free_operation_id'])
     params = {'user_id': f'eq.{user.user_id}', 'id': f'eq.{job_id}', 'status': 'eq.running'}
     try:
-        value = await action()
+        with tracing.identity(user.user_id, result['free_operation_id']), tracing.trace(
+                'ai.' + kind, metadata={'job_id': job_id, 'request_id': monitoring.request_id.get()}):
+            value = await action()
         if isinstance(value, dict):
             value = {**value, 'free_operation_id': result['free_operation_id']}
         if not await admin('ai_jobs', 'PATCH', {'status': 'complete', 'result': value}, params):

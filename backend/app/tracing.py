@@ -80,3 +80,25 @@ def shutdown():
             sdk.shutdown()
         except Exception:
             log.warning('langfuse_shutdown_failed')
+
+
+@contextmanager
+def identity(user_id, session_id):
+    """Verified account and server-owned operation ID, never client metadata."""
+    manager = None
+    if client() is not None:
+        try:
+            from langfuse import propagate_attributes
+            manager = propagate_attributes(user_id=str(user_id), session_id=str(session_id))
+            manager.__enter__()
+        except Exception:
+            manager = None
+            log.warning('langfuse_identity_failed')
+    try:
+        yield
+    finally:
+        if manager is not None:
+            try:
+                manager.__exit__(None, None, None)
+            except Exception:
+                log.warning('langfuse_identity_end_failed')

@@ -155,7 +155,7 @@ LANGFUSE_ENVIRONMENT=development
 
 Base URL 必须与项目所在区域一致（以上是 EU）；本地填写现有 `backend/.env`，不要放前端或提交密钥。部署并生成一次后，在 Langfuse Traces 找 `recipes.generate`，按 metadata 中的 `agent_run_id` 或 `request_id` 对照 Render 日志。记录每轮候选数、校验失败类别、评分、去重数、累计接受数、最终数量，以及 MCP、模型和保存耗时。模型调用包含 Token 和按现有后端费率估算的 USD 成本（不是账单金额）。
 
-不上传完整提示词、库存、饮食偏好、照片、JWT 或用户 ID；异常只记录类型。使用手工 SDK spans，因为当前直接通过 OpenAI SDK 调模型，仅加 LangGraph callback 无法覆盖全部步骤。后台批量导出，应用关闭时在线程中 flush/shutdown，不在每次生成末尾等待导出。这里只追踪实际执行的生成流程（幂等缓存命中不重新创建），以及文本模型调用；独立生图请求尚未纳入。追踪 SDK 的启动、更新、结束失败均不阻断业务。
+不上传完整提示词、库存、饮食偏好、照片、JWT 或邮箱；异常只记录类型。使用手工 SDK spans，因为当前直接通过 OpenAI SDK 调模型，仅加 LangGraph callback 无法覆盖全部步骤。后台批量导出，应用关闭时在线程中 flush/shutdown，不在每次生成末尾等待导出。这里只追踪实际执行的生成流程（幂等缓存命中不重新创建），以及文本模型调用；识别、生成和独立生图请求通过同一个操作 Session 关联。追踪 SDK 的启动、更新、结束失败均不阻断业务。
 
 SDK 接口参考：[Langfuse instrumentation](https://langfuse.com/docs/observability/sdk/instrumentation)。
 
@@ -176,3 +176,7 @@ Token 与估算成本继续写现有 Supabase `ai_usage`，可在 SQL Editor 执
 ### 管理员菜谱生成角色
 
 迁移 `011_unlimited_recipe_generation_role.sql` 为已确认邮箱 `bowenivy0@gmail.com` 的现有账号授予 `unlimited_recipe_generation`。角色按 Supabase user ID 绑定在 `ai_account_roles`，普通用户不能查询或修改；客户端传 email/role 不会改变权限。该角色只免除菜谱生成的 3 次终身额度，关联菜谱图片继续包含；照片识别仍限 3 次。速率、并发、每张图片最多 3 次尝试、幂等和全站日预算保持。角色只在数据库迁移部署后生效；如果迁移时账号不存在或邮箱未确认，不会授权，确认后由管理员执行对应 INSERT SELECT 即可，不重新执行整份迁移。删除账号会级联移除角色。
+
+### Langfuse Users / Sessions
+
+开发追踪使用已认证 Supabase `user_id` 作为 Langfuse User，不上传邮箱。Session 使用数据库返回的 `free_operation_id`：一次识别、它包含的菜谱生成，以及这些菜谱的图片请求会出现在同一个 Session 下；直接生成菜谱则创建自己的 Session。它是一次操作链的分组，不是登录 session，也不是每一轮生成。每个实际执行的付费操作有 `ai.recognize` / `ai.generate` / `ai.image` 根追踪，包含 job_id / request_id；所有内部 spans 继承 User / Session。幂等缓存命中不产生新模型追踪，原调用已有记录。无需新环境变量，仍只在 `APP_ENVIRONMENT=development` 且 Langfuse 开启时发送。历史 Trace 不回填，部署后新调用才有 User / Session。

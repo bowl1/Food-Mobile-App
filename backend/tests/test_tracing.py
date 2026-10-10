@@ -97,3 +97,72 @@ def test_production_or_disabled_never_initializes_sdk(monkeypatch, environment, 
         assert tracing.client() is None
     finally:
         tracing.client.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_user_session_propagates_without_cross_request_leak(monkeypatch):
+    from langfuse import Langfuse
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+    class Exporter(SpanExporter):
+        def __init__(self):
+            self.spans = []
+        def export(self, spans):
+            self.spans.extend(spans)
+            return SpanExportResult.SUCCESS
+        def shutdown(self):
+            pass
+    exporter = Exporter()
+    sdk = Langfuse(public_key='pk-lf-identity-test', secret_key='local-test',
+                   tracer_provider=TracerProvider(), span_exporter=exporter)
+    monkeypatch.setattr(tracing, 'client', lambda: sdk)
+    async def work(user, session, name):
+        with tracing.identity(user, session), tracing.trace(name):
+            await asyncio.sleep(0)
+            with tracing.trace(name + '.llm'):
+                pass
+    await asyncio.gather(work('user-one', 'operation-one', 'scan'),
+                         work('user-two', 'operation-two', 'other'))
+    await work('user-one', 'operation-one', 'generate')
+    await work('user-one', 'operation-one', 'image')
+    with tracing.trace('outside'):
+        pass
+    sdk.flush()
+    sdk.shutdown()
+    for span in exporter.spans:
+        if span.name == 'outside':
+            assert 'user.id' not in span.attributes
+            assert 'session.id' not in span.attributes
+        else:
+            expected = 'two' if span.name.startswith('other') else 'one'
+            assert span.attributes['user.id'] == f'user-{expected}'
+            assert span.attributes['session.id'] == f'operation-{expected}'
+
+
+@pytest.mark.asyncio
+async def test_paid_action_uses_verified_user_and_database_operation(monkeypatch):
+    from backend.app import costs
+    from backend.app.auth import Identity
+    from backend.app.config import settings
+    cfg = settings().model_copy(update={'demo_mode': False})
+    monkeypatch.setattr(costs, 'settings', lambda: cfg)
+    identities = []
+    @contextmanager
+    def identity(user_id, session_id):
+        identities.append((user_id, session_id))
+        yield
+    monkeypatch.setattr(tracing, 'identity', identity)
+    monkeypatch.setattr(tracing, 'client', lambda: None)
+    async def admin(path, method='POST', data=None, params=None):
+        if path.startswith('rpc/'):
+            return {'state': 'reserved', 'free_operation_id': 'server-operation'}
+        return [{}]
+    monkeypatch.setattr(costs, 'admin', admin)
+    async def action():
+        assert costs.active_free_operation.get() == 'server-operation'
+        return {'recipes': []}
+    result = await costs.run_paid(Identity('verified-user', 'private-token'), 'generate',
+                                 'job', {'user_id': 'forged-user'}, action)
+    assert identities == [('verified-user', 'server-operation')]
+    assert result['free_operation_id'] == 'server-operation'
+    assert costs.active_job.get() is None
