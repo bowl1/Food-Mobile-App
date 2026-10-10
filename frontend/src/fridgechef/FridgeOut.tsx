@@ -287,8 +287,9 @@ export function FridgeOut() {
       </>}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={s.nav}><View style={s.navInner}>{(['Kitchen', 'Recipes', 'Favorite', 'You'] as Tab[]).map((item, i) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => { setTab(item); setNotice(''); }} style={s.navItem}><View style={[s.navIcon, tab === item && s.navSelected]}><Icon name={(['basket', 'restaurant', 'bookmark', 'person'] as IconName[])[i]} color={tab === item ? palette.orange : palette.muted} size={22} /></View><Text style={[s.navText, tab === item && { color: palette.orange, fontWeight: '700' }]}>{item}</Text></Pressable>)}</View></SafeAreaView>
-    <Modal visible={upgradeOpen} animationType="slide" onRequestClose={() => { if (!billingBusy) setUpgradeOpen(false); }}><SafeAreaView style={s.root}><PaperTexture /><ScrollView contentContainerStyle={s.content}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close upgrade" disabled={billingBusy} onPress={() => setUpgradeOpen(false)}><Text style={s.link}>← Back to my kitchen</Text></Pressable>
+    <Modal visible={upgradeOpen} animationType="slide" onRequestClose={() => setUpgradeOpen(false)}><SafeAreaView style={s.root}><PaperTexture />
+      <View style={s.header}><Pressable accessibilityRole="button" accessibilityLabel="Back to main screen" hitSlop={8} style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setUpgradeOpen(false)}><Text style={s.link}>← Back to app</Text></Pressable></View>
+      <ScrollView contentContainerStyle={s.content}>
       <Text style={s.eyebrow}>MORE MEALS FROM WHAT’S LEFT</Text><Text style={s.title}>Upgrade your{ '\n' }kitchen.</Text><Text style={s.muted}>Make the most of your fridge with FridgeOut Plus.</Text>
       {DEMO ? <Text style={s.muted}>Subscriptions are available when you sign in to the iOS app.</Text> : <SubscriptionCard key={session.user.id} userId={session.user.id} status={freeTrial.data} onBusyChange={setBillingBusy} />}
     </ScrollView></SafeAreaView></Modal>
