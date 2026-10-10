@@ -246,7 +246,7 @@ export function FridgeOut() {
         <Text style={s.eyebrow}>{brand.tagline}</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
         <View style={s.hero}><SketchBorder /><View style={s.heroArt}><Image source={kitchenArt} accessible={false} style={s.heroImage} resizeMode="contain" /><View style={s.heroBadge}><View style={s.dot} /><Text style={s.badgeText}>No extra shopping</Text></View></View>
           <Text style={[s.muted, { textAlign: 'center', marginTop: 12, marginBottom: 14 }]}>Snap your ingredients. Find tonight’s dinner.</Text>
-          <Button label="Scan my ingredients" icon="camera-outline" busy={aiBusy === 'photo'} disabled={!!busy || !!aiBusy} onPress={() => pickPhoto(true)} />
+          <Button label="Scan my fridge" icon="camera-outline" busy={aiBusy === 'photo'} disabled={!!busy || !!aiBusy} onPress={() => pickPhoto(true)} />
           <Pressable disabled={!!busy || !!aiBusy} accessibilityRole="button" onPress={() => pickPhoto(false)}><View style={[s.row, { justifyContent: 'center', gap: 6 }]}><Text style={s.link}>Choose from photo library</Text><Icon name="arrow-forward" size={15} /></View></Pressable>
         </View>
         <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>In your kitchen <Text style={s.count}>{foods.length}</Text></Text><Text style={s.small}>Confirmed ingredients, ready for inspiration</Text></View>
