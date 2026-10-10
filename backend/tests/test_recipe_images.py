@@ -243,3 +243,28 @@ async def test_upload_is_backend_only_and_rejects_other_owners(monkeypatch):
         assert calls[0]['headers']['Authorization']=='Bearer backend-secret'
     finally:
         settings.cache_clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('state,delay', [('busy', 10), ('rate_limit', 60)])
+async def test_unreserved_busy_image_is_queued_and_recovers_without_manual_retry(image_backend, monkeypatch, state, delay):
+    row, calls, user = image_backend
+    attempts, generations = 0, 0
+    async def paid(user, kind, job_id, payload, action):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise HTTPException(429 if state == 'rate_limit' else 409, 'wait',
+                                headers={'X-AI-Job-State': state})
+        return await action()
+    async def generate(recipe):
+        nonlocal generations
+        generations += 1
+        return row['_test_content']
+    monkeypatch.setattr(images, 'run_paid', paid)
+    monkeypatch.setattr(images, 'generate_image', generate)
+    assert await images.recipe_image(row['id'], user) == {'status': 'queued', 'retry_after': delay}
+    assert row['image_status'] == 'pending' and row['image_lease_id'] is None
+    assert generations == 0
+    assert (await images.recipe_image(row['id'], user))['status'] == 'ready'
+    assert generations == 1

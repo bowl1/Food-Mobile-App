@@ -211,7 +211,13 @@ async def recipe_image(recipe_id, user, retry=False):
                 await save_output(content)
             else:
                 await run_paid(user, 'image', lease, {'recipe_id': str(recipe_id)}, paid_output)
-    except HTTPException:
+    except HTTPException as exc:
+        state = (exc.headers or {}).get('X-AI-Job-State')
+        if state in ('busy', 'rate_limit'):
+            # No paid job was reserved: release this lease for a normal later attempt.
+            await db.request('recipes', 'PATCH', {'image_status': 'pending',
+                'image_started_at': None, 'image_lease_id': None}, str(recipe_id), filters=filters)
+            return {'status': 'queued', 'retry_after': 60 if state == 'rate_limit' else 10}
         await db.request('recipes', 'PATCH', {'image_status': 'failed'}, str(recipe_id), filters=filters)
         raise
     except Exception as exc:

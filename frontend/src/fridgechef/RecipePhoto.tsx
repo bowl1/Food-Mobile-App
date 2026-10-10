@@ -1,39 +1,77 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { api, DEMO, Recipe } from './api';
+import { api, ApiError, DEMO, Recipe } from './api';
+import { queuedImageRequest } from './imageQueue';
 import { SketchBorder } from './SketchPaper';
 import { foodArt, palette } from './theme';
 
-type ImageResult = { status: 'ready' | 'generating' | 'failed' | 'unavailable'; url?: string; thumbnail_url?: string };
+type ImageResult = { status: 'ready' | 'generating' | 'queued' | 'failed' | 'unavailable'; retry_after?: number; client_started_at?: number; url?: string; thumbnail_url?: string };
 
 export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail?: boolean }) {
   const retry = useRef(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pollRound, setPollRound] = useState(0);
-  const pollingStarted = useRef(Date.now());
+  const pollingStarted = useRef<number | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [waitingForSlot, setWaitingForSlot] = useState(false);
   const [pollExpired, setPollExpired] = useState(false);
   useEffect(() => {
-    pollingStarted.current = Date.now();
     setPollExpired(false);
-    const timer = setTimeout(() => setPollExpired(true), 180000);
+    if (startedAt === null) return;
+    const timer = setTimeout(() => setPollExpired(true), Math.max(0, 180000 - (Date.now() - startedAt)));
     return () => clearTimeout(timer);
-  }, [recipe.id, pollRound]);
+  }, [startedAt, pollRound]);
+  useEffect(() => {
+    pollingStarted.current = null;
+    setStartedAt(null);
+    setPollExpired(false);
+    setLoadFailed(false);
+  }, [recipe.id]);
   const image = useQuery({
     queryKey: ['chef-recipe-image', recipe.id],
     queryFn: async () => {
-      const manualRetry = retry.current;
-      retry.current = false;
-      return api<ImageResult>(`/recipes/${recipe.id}/image${manualRetry ? '?retry=true' : ''}`, 'POST');
+      setWaitingForSlot(true);
+      try {
+        return await queuedImageRequest(async () => {
+          setWaitingForSlot(false);
+          if (pollingStarted.current === null) {
+            pollingStarted.current = Date.now();
+            setStartedAt(pollingStarted.current);
+          }
+          const manualRetry = retry.current;
+          retry.current = false;
+          const result = await api<ImageResult>(`/recipes/${recipe.id}/image${manualRetry ? '?retry=true' : ''}`, 'POST');
+          if (result.status === 'queued') {
+            pollingStarted.current = null;
+            setStartedAt(null);
+          }
+          return { ...result, client_started_at: pollingStarted.current ?? undefined };
+        });
+      } finally { setWaitingForSlot(false); }
     },
     enabled: !recipe.preview_only && !DEMO && !!recipe.image_status && recipe.image_status !== 'none',
-    retry: false,
+    retry: (count, error) => count < 2 && (error instanceof TypeError ||
+      (error instanceof ApiError && error.status >= 500 && error.jobState !== 'failed')),
+    retryDelay: 2000,
     staleTime: 50 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: query => !pollExpired && query.state.data?.status === 'generating'
-      ? Math.min(30000, 5000 * 2 ** Math.min(3, Math.floor((Date.now() - pollingStarted.current) / 30000))) : false,
+    refetchInterval: query => query.state.data?.status === 'queued'
+      ? (query.state.data.retry_after ?? 10) * 1000
+      : !pollExpired && query.state.data?.status === 'generating'
+        ? Math.min(30000, 5000 * 2 ** Math.min(3, Math.floor((Date.now() - (pollingStarted.current ?? Date.now())) / 30000))) : false,
   });
-  const busy = image.isFetching || (!pollExpired && image.data?.status === 'generating');
+  useEffect(() => {
+    if (image.data?.status === 'queued') {
+      pollingStarted.current = null;
+      setStartedAt(null);
+    } else if (image.data?.status === 'generating' && pollingStarted.current === null) {
+      pollingStarted.current = image.data.client_started_at ?? Date.now();
+      setStartedAt(pollingStarted.current);
+    }
+  }, [image.data]);
+  const queued = waitingForSlot || image.data?.status === 'queued';
+  const busy = image.isFetching || queued || (!pollExpired && image.data?.status === 'generating');
   const url = detail ? image.data?.url : (image.data?.thumbnail_url ?? image.data?.url);
   const failed = !!image.error || image.data?.status === 'failed' || loadFailed || (pollExpired && image.data?.status === 'generating');
   return <View style={detail ? { gap: 8 } : { width: '100%', height: '100%' }}>
@@ -42,9 +80,9 @@ export function RecipePhoto({ recipe, detail = false }: { recipe: Recipe; detail
         <Image source={foodArt} accessible={false} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
         <View style={{ position: 'absolute', right: 12, top: 14, backgroundColor: palette.cream, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }}><Text style={{ color: palette.muted, fontSize: 9 }}>Kitchen illustration</Text></View>
         <View style={{ position: 'absolute', bottom: 12, left: 12, right: 12, backgroundColor: '#FFFDF5F2', borderTopLeftRadius: 18, borderTopRightRadius: 12, borderBottomLeftRadius: 12, borderBottomRightRadius: 19, padding: 12, alignItems: 'center', gap: 7 }}><SketchBorder />
-          {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>Creating your dish image…</Text></View> : <>
+          {busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><ActivityIndicator color={palette.orange} /><Text style={{ color: palette.ink, fontSize: 12 }}>{queued ? 'Your dish image is queued…' : 'Creating your dish image…'}</Text></View> : <>
             <Text style={{ color: palette.ink, fontSize: 12, textAlign: 'center' }}>{recipe.preview_only ? 'Your recipe is ready to read. Images follow shortly.' : DEMO ? 'Your dish image appears in live mode' : failed ? (image.error instanceof Error ? image.error.message : 'Your recipe is saved. Try its image again.') : 'Bring this recipe to life'}</Text>
-            {!DEMO && !recipe.preview_only && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); setPollRound(round => round + 1); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
+            {!DEMO && !recipe.preview_only && <Pressable accessibilityRole="button" accessibilityLabel={failed ? 'Retry recipe image' : 'Generate recipe image'} onPress={event => { event.stopPropagation(); setLoadFailed(false); pollingStarted.current = null; setStartedAt(null); setPollExpired(false); setPollRound(round => round + 1); retry.current = true; void image.refetch(); }} style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 12, backgroundColor: palette.orange }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{failed ? 'Retry image' : 'Generate image'}</Text></Pressable>}
           </>}
         </View>
       </>}
