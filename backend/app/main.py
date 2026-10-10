@@ -239,6 +239,18 @@ async def generation_progress(job_id: UUID, user: Identity = Depends(authenticat
             'attempts': result.get('attempts', 0), 'message': result.get('message', '')}
 
 
+@app.post('/billing/sync')
+async def sync_billing(user: Identity = Depends(authenticated)):
+    from .billing import sync_subscription
+    return await sync_subscription(user.user_id)
+
+
+@app.post('/billing/revenuecat/webhook')
+async def billing_webhook(request: Request, authorization: str = Header(default='')):
+    from .billing import handle_webhook
+    return await handle_webhook(await request.json(), authorization)
+
+
 @app.get('/ai/trial')
 async def free_trial(user: Identity = Depends(authenticated)):
     return await trial_status(user)

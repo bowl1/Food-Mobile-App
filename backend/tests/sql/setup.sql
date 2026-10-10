@@ -49,6 +49,7 @@ grant all on storage.objects to authenticated;
 \ir ../../../supabase/migrations/009_three_lifetime_free_uses.sql
 \ir ../../../supabase/migrations/010_explicit_favorite_recipes.sql
 \ir ../../../supabase/migrations/011_unlimited_recipe_generation_role.sql
+\ir ../../../supabase/migrations/012_ios_monthly_subscriptions.sql
 \endif
 insert into auth.users(id)
 values ('00000000-0000-0000-0000-000000000001'),

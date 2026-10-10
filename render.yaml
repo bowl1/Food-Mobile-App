@@ -25,5 +25,17 @@ services:
         value: production
       - key: LANGFUSE_ENABLED
         value: "false"
+      - key: REVENUECAT_SECRET_KEY
+        sync: false
+      - key: REVENUECAT_WEBHOOK_SECRET
+        sync: false
+      - key: REVENUECAT_ENTITLEMENT
+        value: fridgeout_pro
+      - key: IOS_SUBSCRIPTION_PRODUCT_ID
+        value: fridgeout_pro_monthly
+      - key: SUBSCRIPTION_MONTHLY_USES
+        value: "20"
+      - key: BILLING_ALLOW_SANDBOX
+        value: "false"
       - key: CORS_ORIGINS
         value: http://localhost:8081,http://localhost:19006

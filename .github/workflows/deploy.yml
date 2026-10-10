@@ -63,6 +63,12 @@ jobs:
         run: |
           createdb -h localhost -U postgres cost_test
           psql -h localhost -U postgres -d cost_test -v ON_ERROR_STOP=1 -f backend/tests/test_cost_controls.sql
+      - name: Verify subscription periods and purchase isolation
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb -h localhost -U postgres subscription_test
+          psql -h localhost -U postgres -d subscription_test -v ON_ERROR_STOP=1 -f backend/tests/test_subscriptions.sql
       - name: Verify concurrent budget reservations
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cost_test

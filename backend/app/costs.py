@@ -40,14 +40,19 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
         raise HTTPException(422, 'An Idempotency-Key UUID is required for AI operations.')
     job_id = str(job_id)
     fingerprint = sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    result = await admin('rpc/reserve_free_ai_job', data={
+    reservation = {
         'owner_id': user.user_id, 'job_id': job_id, 'job_kind': kind, 'fingerprint': fingerprint,
         'cost_usd': getattr(cfg, f'ai_{kind}_reserve_usd'),
         'total_operations': cfg.free_trial_uses,
         'included_operation_id': str(included_operation) if included_operation else None,
         'recipe_id': payload.get('recipe_id') if kind == 'image' else None,
         'minute_limit': 6 if kind == 'image' else 3,
-        'daily_budget': cfg.ai_daily_budget_usd})
+        'daily_budget': cfg.ai_daily_budget_usd}
+    result = await admin('rpc/reserve_free_ai_job', data=reservation)
+    if result['state'] == 'free_limit' and cfg.revenuecat_secret_key:
+        from .billing import sync_subscription
+        await sync_subscription(user.user_id)
+        result = await admin('rpc/reserve_free_ai_job', data=reservation)
     state = result['state']
     if state == 'complete':
         return result['result']
@@ -56,7 +61,7 @@ async def run_paid(user, kind, job_id, payload, action, included_operation=None)
         'failed': 'This operation did not finish. Start a new operation to try again.',
         'busy': 'An AI operation is already running. Please wait.',
         'image_limit': 'This recipe has reached its image generation attempt limit.',
-        'free_limit': 'You have used all 3 free tries. Free uses do not reset.',
+        'free_limit': 'Your available uses are exhausted. Subscribe or wait for your next billing period.',
         'operation_required': 'Generate a recipe using a free try to include its AI images.',
         'operation_used': 'This scan’s included recipe generation has already been used.',
         'rate_limit': 'Too many AI requests. Please wait a minute.',

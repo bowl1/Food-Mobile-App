@@ -10,6 +10,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { api, defaults, DEMO, Food, Preferences, Recipe, restoreSession, Session, signIn, signOut } from './api';
 
 import { clearKitchenCache, restoreKitchenCache, watchKitchenCache } from './cache';
+import { SubscriptionCard } from './SubscriptionCard';
 import { RecipePhoto } from './RecipePhoto';
 import { PaperTexture, SketchBorder } from './SketchPaper';
 import { sortFavorites } from './favorites';
@@ -72,6 +73,7 @@ export function FridgeOut() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
   const [aiBusy, setAiBusy] = useState('');
+  const [billingBusy, setBillingBusy] = useState(false);
   const actionLock = useRef(false);
   const aiLock = useRef(false);
   const deletedRecipeIds = useRef(new Set<string>());
@@ -107,7 +109,7 @@ export function FridgeOut() {
   async function task(name: string, action: () => Promise<void>) {
     const isAI = name === 'photo' || name === 'generate';
     const lock = isAI ? aiLock : actionLock;
-    if (lock.current || (isAI && actionLock.current) || (name === 'logout' && aiLock.current)) return;
+    if (lock.current || (isAI && actionLock.current) || (name === 'logout' && (aiLock.current || billingBusy))) return;
     lock.current = true;
     const updateBusy = isAI ? setAiBusy : setBusy;
     updateBusy(name); setError(''); setNotice('');
@@ -238,7 +240,8 @@ export function FridgeOut() {
     {DEMO && <View style={s.demo}><Icon name="flask-outline" size={15} /><Text style={s.demoText}>LOCAL DEMO · sample recognition & recipe scores</Text></View>}
     <ScrollView ref={contentScroll} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       {(!!error || !!queryError) && <View accessibilityRole="alert" style={s.error}><Text style={s.errorText}>{error || (queryError as Error).message}</Text><Pressable onPress={() => { setError(''); inventory.refetch(); preferences.refetch(); if (tab === 'Favorite') favorites.refetch(); }}><Text style={s.link}>Try again</Text></Pressable></View>}
-      {!DEMO && freeTrial.data && <View style={s.notice}><Icon name="sparkles-outline" size={20} /><View style={{ flex: 1 }}><Text style={s.foodName}>{freeTrial.data.unlimited_generation ? 'Unlimited recipe generation' : freeTrial.data.exhausted ? 'You’ve used all your free tries' : `${freeTrial.data.remaining_uses} of ${freeTrial.data.total_uses} free tries remaining`}</Text><Text style={s.small}>{freeTrial.data.unlimited_generation ? `${freeTrial.data.remaining_uses} free scans remaining. Dish images included with recipes.` : 'Recipes and dish images included. No expiry. Free tries do not reset.'}</Text></View></View>}
+      {!DEMO && freeTrial.data?.exhausted && !freeTrial.data.unlimited_generation && <Button label="View monthly plan" secondary onPress={() => setTab('You')} />}
+      {!DEMO && freeTrial.data && <View style={s.notice}><Icon name="sparkles-outline" size={20} /><View style={{ flex: 1 }}><Text style={s.foodName}>{freeTrial.data.unlimited_generation ? 'Unlimited recipe generation' : freeTrial.data.subscribed ? `${freeTrial.data.monthly_remaining} monthly runs remaining` : freeTrial.data.exhausted ? 'You’ve used all your free tries' : `${freeTrial.data.remaining_uses} of ${freeTrial.data.total_uses} free tries remaining`}</Text><Text style={s.small}>{freeTrial.data.unlimited_generation ? `${freeTrial.data.remaining_uses} free scans remaining. Dish images included with recipes.` : freeTrial.data.subscribed ? `${freeTrial.data.remaining_uses} free tries also remaining. Monthly runs reset at renewal.` : 'Recipes and dish images included. No expiry. Free tries do not reset.'}</Text></View></View>}
       {!!notice && <View style={s.notice}><Icon name="information-circle-outline" size={20} /><Text style={[s.muted, { flex: 1 }]}>{notice}</Text></View>}
       {tab === 'Kitchen' && <>
         <Text style={s.eyebrow}>{brand.tagline}</Text><Text style={s.title}>What’s left in{ '\n' }your fridge?</Text><Text style={s.muted}>Turn your remaining ingredients into a delicious meal. Use them up, waste less.</Text>
@@ -274,12 +277,13 @@ export function FridgeOut() {
         {favorites.isLoading ? <ActivityIndicator color={green} /> : favorites.data?.length ? favorites.data.map((r, i) => <View key={r.id} style={{ gap: 4 }}><RecipeCard recipe={r} index={i} onPress={() => setRecipe(r)} favorites /><Pressable accessibilityRole="button" accessibilityLabel={`Delete ${r.recipe_name}`} disabled={!!busy} onPress={() => { void deleteFavorite(r); }} style={[s.row, { alignSelf: 'flex-end', padding: 12 }]}><Icon name="trash-outline" size={17} color="#A34F3D" />{busy === `delete-recipe-${r.id}` ? <ActivityIndicator size="small" color="#A34F3D" /> : <Text style={{ color: '#A34F3D', fontSize: 12 }}>Delete recipe</Text>}</Pressable></View>) : <Empty icon="book-outline" title="Your favorites start here" text="Tap Save on a generated recipe to keep it here." />}
       </>}
       {tab === 'You' && <>
+        {!DEMO && <SubscriptionCard key={session.user.id} userId={session.user.id} status={freeTrial.data} onBusyChange={setBillingBusy} />}
         <Text style={s.eyebrow}>A KITCHEN THAT KNOWS YOU</Text><Text style={s.title}>Your taste.{ '\n' }Your way.</Text><Text style={s.muted}>Tell us what works for you. We’ll keep it in mind for every recipe.</Text>
         <View style={s.card}><SketchBorder />{dietaryLabels.map(([key, label, help], i) => <View key={key} style={[s.preferenceRow, i > 0 && s.divider]}><View style={s.preferenceArt}><HandDrawnIcon name={key === 'high_protein' ? 'egg' : key === 'keto' ? 'bowl' : 'leaf'} size={25} color={palette.leaf} /></View><View style={{ flex: 1 }}><Text style={s.foodName}>{label}</Text><Text style={s.small}>{help}</Text></View><Switch accessibilityLabel={label} value={prefsDraft[key]} trackColor={{ false: palette.line, true: '#A8B57B' }} thumbColor={prefsDraft[key] ? green : '#fff'} onValueChange={v => setPrefsDraft(p => ({ ...p, [key]: v }))} /></View>)}</View>
         <View style={s.card}><SketchBorder /><View style={s.row}><Icon name="time-outline" /><Text style={s.cardTitle}>Time on your side</Text></View><Text style={s.small}>Maximum cooking time</Text><View style={s.chips}>{[15, 30, 45, 60].map(n => <Pressable accessibilityRole="button" accessibilityState={{ selected: prefsDraft.max_cooking_time === n }} key={n} onPress={() => setPrefsDraft(p => ({ ...p, max_cooking_time: n }))} style={[s.timeChip, prefsDraft.max_cooking_time === n && { backgroundColor: green }]}><Text style={[s.chipText, prefsDraft.max_cooking_time === n && { color: '#fff' }]}>{n} min</Text></Pressable>)}</View></View>
         <Button label="Save my preferences" busy={busy === 'preferences'} disabled={!!busy} icon="checkmark-outline" onPress={() => task('preferences', async () => { await api('/preferences', 'PUT', prefsDraft); await queryClient.invalidateQueries({ queryKey: ['chef-preferences'] }); setNotice('Preferences saved. Your next recipes will use these choices.'); })} />
         <View style={[s.card, { marginTop: 16 }]}><SketchBorder /><Text style={s.cardTitle}>Your personal kitchen</Text><Text style={s.muted}>{session.user.email}</Text><Text style={s.small}>{DEMO ? 'Demo data stays in the local SQLite database.' : 'Your inventory, preferences and favorites belong to your account.'}</Text>
-        {!DEMO && <Button label="Sign out" secondary disabled={!!busy || !!aiBusy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); await clearKitchenCache(session.user.id); setSession(null); deletedRecipeIds.current.clear(); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
+        {!DEMO && <Button label="Sign out" secondary disabled={!!busy || !!aiBusy || billingBusy} onPress={() => task('logout', async () => { await signOut(); queryClient.clear(); await clearKitchenCache(session.user.id); setSession(null); deletedRecipeIds.current.clear(); setRecipes([]); setRecipe(null); setDrafts(null); setEditing(null); setPassword(''); setTab('Kitchen'); })} />}</View>
       </>}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={s.nav}><View style={s.navInner}>{(['Kitchen', 'Recipes', 'Favorite', 'You'] as Tab[]).map((item, i) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => { setTab(item); setNotice(''); }} style={s.navItem}><View style={[s.navIcon, tab === item && s.navSelected]}><Icon name={(['basket', 'restaurant', 'bookmark', 'person'] as IconName[])[i]} color={tab === item ? palette.orange : palette.muted} size={22} /></View><Text style={[s.navText, tab === item && { color: palette.orange, fontWeight: '700' }]}>{item}</Text></Pressable>)}</View></SafeAreaView>

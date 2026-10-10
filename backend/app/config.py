@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     supabase_url: str = ''
     supabase_anon_key: str = ''
     supabase_service_role_key: str = ''
+    revenuecat_secret_key: str = ''
+    revenuecat_webhook_secret: str = ''
+    revenuecat_entitlement: str = 'fridgeout_pro'
+    ios_subscription_product_id: str = 'fridgeout_pro_monthly'
+    subscription_monthly_uses: int = Field(default=20, ge=1, le=1000)
+    billing_allow_sandbox: bool = False
     free_trial_uses: int = Field(default=3, ge=1)
     ai_text_input_usd_per_million: float = 0.10
     ai_text_output_usd_per_million: float = 0.50

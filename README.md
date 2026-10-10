@@ -112,7 +112,7 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 - 菜谱生成不会扣减库存；用户需手动标记 consumed。收藏反映生成时库存。
 - 扫描确认逐条保存；部分失败时保留未保存项，避免再次提交已保存项。当前一批生成草稿逐条写入，数据库中途故障时可能保留部分已成功记录。
 - Supabase 线上 RLS、多账号真机和真实模型验收需要你的项目配置；本地测试验证查询身份传播和演示集成，不能代替线上验证。
-- 已有服务端成本额度、限流和持久请求去重；尚未接入付费订阅和会员权益。批量评估保留硬规则检查，真实模型质量仍需要线上验收。
+- 已有服务端成本额度、限流和持久请求去重；已接入服务端验证的 iOS 月订阅，配置与上线验收见 [iOS 收费](docs/IOS_BILLING.md)。批量评估保留硬规则检查，真实模型质量仍需要线上验收。
 
 实现接口参考：[LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api)、[官方 MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)。
 
@@ -122,7 +122,7 @@ MCP 每请求独立子进程，FastAPI 验证 JWT 后通过进程环境传入可
 
 新图片文件存储在私有 `recipe-images` bucket 的 `user_id/recipe_id/image.jpg`，缩略图追加 `.thumb.jpg`；旧图片路径仍可读取。重试保持原路径，数据库以独立 lease ID 防止重复任务。读取和签名使用用户 JWT 和 RLS；上传及后台清理使用仅后端的 service-role key，上传前验证用户归属和路径，客户端不能直接写入 bucket。签名 URL 一小时失效，App 缓存五十分钟后可重新获取。模型返回图片前不会阻塞菜谱保存；AI 图仅作成品示意，实际效果可能不同。
 
-接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先在 Render 填写 `SUPABASE_SERVICE_ROLE_KEY`，应用 003–010 迁移，部署后端，最后更新前端；前端生成/识别接口现在需要 `Idempotency-Key` UUID。详见 [成本控制与配置](docs/COST_CONTROLS.md)。
+接口参考：[OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)、[Supabase Storage RLS](https://supabase.com/docs/guides/storage/security/access-control)。部署顺序：先在 Render 填写 `SUPABASE_SERVICE_ROLE_KEY`，应用 003–012 迁移，部署后端，最后更新前端；前端生成/识别接口现在需要 `Idempotency-Key` UUID。详见 [成本控制与配置](docs/COST_CONTROLS.md)。
 
 本地 SQL 验证：使用 `psql -v ON_ERROR_STOP=1 -d <disposable_database> -f <test_file>`，每个测试文件使用独立的空临时 PostgreSQL 数据库。
 
